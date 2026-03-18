@@ -1,0 +1,69 @@
+# ========================
+# NODE MODULES
+# ========================
+node_modules/
+**/node_modules/
+
+# ========================
+# BUILD FILES
+# ========================
+dist/
+build/
+**/dist/
+**/build/
+
+# ========================
+# ENV & SECRET FILES
+# ========================
+.env
+.env.*
+!.env.example
+
+# ========================
+# KEYS / SECRET FOLDER
+# ========================
+src/keys/
+**/keys/
+
+# ========================
+# LOG FILES
+# ========================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ========================
+# OS FILES
+# ========================
+.DS_Store
+Thumbs.db
+
+# ========================
+# IDE / EDITOR
+# ========================
+.vscode/
+.idea/
+
+# ========================
+# TYPESCRIPT
+# ========================
+*.tsbuildinfo
+
+# ========================
+# TEST / COVERAGE
+# ========================
+coverage/
+
+# ========================
+# TEMP FILES
+# ========================
+tmp/
+temp/
+
+# ========================
+# PACKAGE LOCK (optional)
+# ========================
+# Nếu bạn KHÔNG muốn push lock file thì mở dòng dưới
+# package-lock.json
