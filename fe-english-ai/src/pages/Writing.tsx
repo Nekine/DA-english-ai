@@ -14,7 +14,7 @@ const Index = () => {
   const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [review, setReview] = useState<string | null>(null);
-  const [aiProvider, setAiProvider] = useState<'gemini' | 'openai'>('gemini');
+  const [aiProvider, setAiProvider] = useState<'gemini' | 'openai' | 'xai'>('openai');
   const [lastSubmittedData, setLastSubmittedData] = useState<GenerateReviewRequest | null>(null);
 
   const handleSubmit = async (data: GenerateReviewRequest) => {
@@ -121,6 +121,13 @@ const Index = () => {
                 className="transition-all"
               >
                 ✨ ChatGPT
+              </Button>
+              <Button
+                variant={aiProvider === 'xai' ? 'default' : 'outline'}
+                onClick={() => setAiProvider('xai')}
+                className="transition-all"
+              >
+                🧠 Grok
               </Button>
             </div>
 

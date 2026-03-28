@@ -29,7 +29,7 @@ const ReadingExercises = () => {
   const [topic, setTopic] = useState("");
   const [level, setLevel] = useState<Level>("Intermediate");
   const [type, setType] = useState<Type>("Part 7");
-  const [provider, setProvider] = useState<"gemini" | "openai">("gemini");
+  const [provider, setProvider] = useState<"gemini" | "openai" | "xai">("openai");
 
   // Scroll to top on mount
   useEffect(() => {
@@ -199,13 +199,14 @@ const ReadingExercises = () => {
                 <SelectItem value="Part 7">Part 7 - Reading Comprehension</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={provider} onValueChange={(v) => setProvider(v as "gemini" | "openai")}>
+            <Select value={provider} onValueChange={(v) => setProvider(v as "gemini" | "openai" | "xai")}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="gemini">🤖 Gemini</SelectItem>
                 <SelectItem value="openai">✨ OpenAI GPT</SelectItem>
+                <SelectItem value="xai">🧠 Grok</SelectItem>
               </SelectContent>
             </Select>
             <Button onClick={handleGenerate} disabled={isGenerating || !topic.trim()} className="w-full">

@@ -274,14 +274,14 @@ class DatabaseStatsService {
     topic: string, 
     level: 'Beginner' | 'Intermediate' | 'Advanced',
     type: 'Part 5' | 'Part 6' | 'Part 7',
-    provider: 'gemini' | 'openai' = 'gemini'
+    provider: 'gemini' | 'openai' | 'xai' = 'openai'
   ): Promise<ReadingExercise> {
     try {
       interface AIGenerateRequest {
         topic: string;
         level: 'Beginner' | 'Intermediate' | 'Advanced';
         type: 'Part 5' | 'Part 6' | 'Part 7';
-        provider?: 'gemini' | 'openai';
+        provider?: 'gemini' | 'openai' | 'xai';
         userId?: string; // Track who generated
       }
 

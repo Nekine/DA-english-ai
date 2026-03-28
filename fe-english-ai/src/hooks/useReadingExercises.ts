@@ -37,12 +37,12 @@ export const useReadingExercises = () => {
       topic,
       level,
       type,
-      provider = 'gemini'
+      provider = 'openai'
     }: {
       topic: string;
       level: 'Beginner' | 'Intermediate' | 'Advanced';
       type: 'Part 5' | 'Part 6' | 'Part 7';
-      provider?: 'gemini' | 'openai';
+      provider?: 'gemini' | 'openai' | 'xai';
     }) => databaseStatsService.generateReadingExercise(topic, level, type, provider),
     onSuccess: (newExercise: ReadingExercise) => {
       // THÊM VÀO DANH SÁCH

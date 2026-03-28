@@ -79,6 +79,16 @@ export interface AdminDashboardData {
   systemHealth: SystemHealth;
 }
 
+interface BackendPagedResult<T> {
+  Data: T[];
+  TotalCount: number;
+  Page: number;
+  PageSize: number;
+  TotalPages: number;
+  HasNextPage: boolean;
+  HasPreviousPage: boolean;
+}
+
 // 👤 USER MANAGEMENT INTERFACES
 export interface AdminUser {
   id: string;
@@ -230,6 +240,104 @@ export interface CreateExerciseRequest {
 }
 
 class AdminService {
+  private normalizeDashboardData(raw: any): AdminDashboardData {
+    if (raw?.systemStats && raw?.systemHealth) {
+      return raw as AdminDashboardData;
+    }
+
+    const statistics = raw?.statistics ?? {};
+    const topUsersRaw = Array.isArray(raw?.topUsers) ? raw.topUsers : [];
+    const systemHealthRaw = raw?.systemHealth ?? {};
+
+    return {
+      systemStats: {
+        totalUsers: Number(statistics.totalUsers ?? statistics.TotalUsers ?? 0),
+        activeUsers: Number(statistics.activeUsers ?? statistics.ActiveUsers ?? statistics.activeUsersToday ?? 0),
+        totalExercises: Number(statistics.totalExercises ?? statistics.TotalExercises ?? 0),
+        totalResults: Number(statistics.totalSubmissions ?? statistics.TotalSubmissions ?? 0),
+        averageScore: Number(statistics.averageScore ?? statistics.AverageScore ?? 0),
+        completionRate: 0,
+        weeklyNewUsers: Number(statistics.NewUsersThisWeek ?? 0),
+        monthlyActiveUsers: Number(statistics.ActiveUsersThisMonth ?? 0),
+        TotalUsers: Number(statistics.totalUsers ?? statistics.TotalUsers ?? 0),
+        ActiveUsersToday: Number(statistics.activeUsersToday ?? statistics.ActiveUsersToday ?? 0),
+        ActiveUsersThisWeek: Number(statistics.activeUsersThisWeek ?? statistics.ActiveUsersThisWeek ?? 0),
+        TotalExercises: Number(statistics.totalExercises ?? statistics.TotalExercises ?? 0),
+        TotalSubmissions: Number(statistics.totalSubmissions ?? statistics.TotalSubmissions ?? 0),
+        AverageScore: Number(statistics.averageScore ?? statistics.AverageScore ?? 0),
+      },
+      recentActivities: Array.isArray(raw?.recentActivities) ? raw.recentActivities : [],
+      topUsers: topUsersRaw.map((u: any) => ({
+        userId: String(u.userId ?? u.UserId ?? ""),
+        username: String(u.userName ?? u.username ?? u.Username ?? ""),
+        fullName: u.fullName ?? u.FullName ?? "",
+        totalXp: Number(u.totalXP ?? u.totalXp ?? u.TotalXP ?? 0),
+        exercisesCompleted: Number(u.totalExercises ?? u.completedExercises ?? u.TotalExercises ?? 0),
+        averageScore: Number(u.averageScore ?? u.AverageScore ?? 0),
+        level: Number(u.level ?? u.Level ?? 0),
+      })),
+      systemHealth: {
+        status: "Healthy",
+        uptime: "N/A",
+        memoryUsage: Number(systemHealthRaw.memoryUsagePercent ?? systemHealthRaw.MemoryUsagePercent ?? 0),
+        cpuUsage: Number(systemHealthRaw.cpuUsagePercent ?? systemHealthRaw.CpuUsagePercent ?? 0),
+        activeConnections: Number(systemHealthRaw.activeSessions ?? systemHealthRaw.ActiveSessions ?? 0),
+        lastBackup: systemHealthRaw.lastCheckTime ?? systemHealthRaw.LastCheckTime ?? new Date().toISOString(),
+        DatabaseConnection: Boolean(systemHealthRaw.databaseConnection ?? systemHealthRaw.DatabaseConnection),
+        GeminiApiConnection: Boolean(systemHealthRaw.geminiApiConnection ?? systemHealthRaw.GeminiApiConnection),
+        ResponseTimeMs: Number(systemHealthRaw.responseTimeMs ?? systemHealthRaw.ResponseTimeMs ?? 0),
+        CpuUsagePercent: Number(systemHealthRaw.cpuUsagePercent ?? systemHealthRaw.CpuUsagePercent ?? 0),
+        MemoryUsagePercent: Number(systemHealthRaw.memoryUsagePercent ?? systemHealthRaw.MemoryUsagePercent ?? 0),
+        ApplicationVersion: systemHealthRaw.applicationVersion ?? systemHealthRaw.ApplicationVersion ?? "1.0.0",
+        LastCheckTime: systemHealthRaw.lastCheckTime ?? systemHealthRaw.LastCheckTime ?? new Date().toISOString(),
+      },
+    };
+  }
+
+  private normalizeAdminUser(raw: any): AdminUser {
+    const userId = String(raw.userId ?? raw.Id ?? raw.id ?? "");
+    const username = String(raw.userName ?? raw.username ?? raw.Username ?? "");
+    const totalXp = Number(raw.totalXp ?? raw.totalXP ?? raw.TotalXP ?? 0);
+
+    return {
+      id: userId,
+      userId,
+      username,
+      fullName: raw.fullName ?? raw.FullName ?? "",
+      email: raw.email ?? raw.Email ?? "",
+      level: Number(raw.level ?? raw.Level ?? 0),
+      totalXp,
+      joinedDate: raw.joinedDate ?? raw.CreatedAt ?? new Date().toISOString(),
+      lastActivity: raw.lastActivity ?? raw.LastLoginAt ?? new Date().toISOString(),
+      status: (raw.status ?? raw.Status ?? "Active") as AdminUser["status"],
+      exercisesCompleted: Number(raw.exercisesCompleted ?? raw.TotalExercisesCompleted ?? 0),
+      averageScore: Number(raw.averageScore ?? raw.AverageScore ?? 0),
+      streakDays: Number(raw.streakDays ?? raw.StreakDays ?? 0),
+      achievements: Array.isArray(raw.achievements ?? raw.Achievements)
+        ? (raw.achievements ?? raw.Achievements)
+        : [],
+    };
+  }
+
+  private normalizeImportResult(raw: any): ImportResult {
+    if (typeof raw?.importedCount === 'number') {
+      return raw as ImportResult;
+    }
+
+    const totalRows = Number(raw?.TotalRows ?? 0);
+    const successCount = Number(raw?.SuccessCount ?? 0);
+    const errorCount = Number(raw?.ErrorCount ?? 0);
+    const errors = Array.isArray(raw?.Errors) ? raw.Errors : [];
+
+    return {
+      success: errorCount === 0,
+      importedCount: successCount,
+      skippedCount: Math.max(0, totalRows - successCount),
+      errors,
+      duplicateEmails: [],
+      summary: `Imported ${successCount}/${totalRows} users`,
+    };
+  }
   
   // 📊 DASHBOARD ENDPOINTS
   
@@ -239,8 +347,8 @@ class AdminService {
    */
   async getDashboardData(): Promise<AdminDashboardData> {
     try {
-      const response = await apiService.get<AdminDashboardData>('/api/admin/dashboard');
-      return response;
+      const response = await apiService.get<any>('/api/admin/dashboard');
+      return this.normalizeDashboardData(response);
     } catch (error) {
       console.warn('AdminController API not available, using mock data:', error);
       return this.getMockDashboardData();
@@ -303,8 +411,13 @@ class AdminService {
    */
   async getUsers(): Promise<AdminUser[]> {
     try {
-      const response = await apiService.get<AdminUser[]>('/api/user-management/users');
-      return response;
+      const response = await apiService.get<AdminUser[] | BackendPagedResult<any>>('/api/user-management/users');
+      if (Array.isArray(response)) {
+        return response.map((u) => this.normalizeAdminUser(u));
+      }
+
+      const rows = Array.isArray(response?.Data) ? response.Data : [];
+      return rows.map((u) => this.normalizeAdminUser(u));
     } catch (error) {
       console.warn('UserManagement API not available, using mock data:', error);
       return this.getMockUsers();
@@ -317,8 +430,8 @@ class AdminService {
    */
   async getUserById(userId: string): Promise<AdminUser | null> {
     try {
-      const response = await apiService.get<AdminUser>(`/api/user-management/users/${userId}`);
-      return response;
+      const response = await apiService.get<any>(`/api/user-management/users/${userId}`);
+      return this.normalizeAdminUser(response);
     } catch (error) {
       console.warn(`User ${userId} not found, using mock data:`, error);
       const mockUsers = this.getMockUsers();
@@ -332,8 +445,8 @@ class AdminService {
    */
   async createUser(userData: CreateUserRequest): Promise<AdminUser> {
     try {
-      const response = await apiService.post<AdminUser>('/api/user-management/users', userData);
-      return response;
+      const response = await apiService.post<any>('/api/user-management/users', userData);
+      return this.normalizeAdminUser(response);
     } catch (error) {
       console.error('Failed to create user:', error);
       throw error;
@@ -346,8 +459,8 @@ class AdminService {
    */
   async updateUser(userId: string, userData: UpdateUserRequest): Promise<AdminUser> {
     try {
-      const response = await apiService.put<AdminUser>(`/api/user-management/users/${userId}`, userData);
-      return response;
+      const response = await apiService.put<any>(`/api/user-management/users/${userId}`, userData);
+      return this.normalizeAdminUser(response);
     } catch (error) {
       console.error(`Failed to update user ${userId}:`, error);
       throw error;
@@ -412,7 +525,8 @@ class AdminService {
         throw new Error('Import failed');
       }
       
-      return await response.json();
+      const data = await response.json();
+      return this.normalizeImportResult(data);
     } catch (error) {
       console.error('Failed to import users from Excel:', error);
       throw error;

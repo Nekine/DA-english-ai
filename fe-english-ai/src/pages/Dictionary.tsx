@@ -12,7 +12,7 @@ const Dictionary: React.FC = () => {
   const navigate = useNavigate();
   const { error } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
-  const [aiProvider, setAiProvider] = useState<'gemini' | 'openai'>('gemini');
+  const [aiProvider, setAiProvider] = useState<'gemini' | 'openai' | 'xai'>('openai');
 
   const { isLoading, request } = useApi();
 
@@ -110,6 +110,16 @@ const Dictionary: React.FC = () => {
               }`}
             >
               ✨ ChatGPT
+            </button>
+            <button
+              onClick={() => setAiProvider('xai')}
+              className={`px-3 py-1 rounded-md text-sm font-medium transition-all ${
+                aiProvider === 'xai'
+                  ? 'bg-orange-500 text-white shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              🧠 Grok
             </button>
           </div>
         </div>

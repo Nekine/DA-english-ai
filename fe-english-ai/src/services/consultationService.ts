@@ -18,6 +18,8 @@ export interface ChatResponse {
   success: boolean;
 }
 
+type AiProvider = 'gemini' | 'openai' | 'xai';
+
 // Rate limit tracking
 let lastRequestTime = 0;
 const MIN_REQUEST_INTERVAL = 2000; // 2 seconds between requests
@@ -39,7 +41,7 @@ export const chatService = {
     englishLevel: number,
     enableReasoning: boolean = false,
     enableSearching: boolean = false,
-    provider: 'gemini' | 'openai' = 'gemini'
+    provider: AiProvider = 'openai'
   ): Promise<string> => {
     // Rate limiting: ensure minimum time between requests
     const now = Date.now();

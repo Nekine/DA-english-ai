@@ -254,7 +254,7 @@ const Exercises: React.FC = () => {
   } | null>(null);
 
   const [selectedQuestionTypes, setSelectedQuestionTypes] = useState<AssignmentType[]>([]);
-  const [aiProvider, setAiProvider] = useState<'gemini' | 'openai'>('gemini');
+  const [aiProvider, setAiProvider] = useState<'gemini' | 'openai' | 'xai'>('openai');
 
   // Timer effect
   useEffect(() => {
@@ -529,6 +529,16 @@ const Exercises: React.FC = () => {
                   }`}
                 >
                   ✨ ChatGPT
+                </button>
+                <button
+                  onClick={() => setAiProvider('xai')}
+                  className={`px-3 py-1 rounded-md text-sm font-medium transition-all ${
+                    aiProvider === 'xai'
+                      ? 'bg-orange-500 text-white shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  🧠 Grok
                 </button>
               </div>
             </div>

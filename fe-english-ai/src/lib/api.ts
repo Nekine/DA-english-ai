@@ -16,8 +16,10 @@ export interface GenerateReviewRequest {
   content: string;
 }
 
+type AiProvider = 'gemini' | 'openai' | 'xai';
+
 export const reviewApi = {
-  generateReview: async (data: GenerateReviewRequest, provider: 'gemini' | 'openai' = 'gemini'): Promise<string> => {
+  generateReview: async (data: GenerateReviewRequest, provider: AiProvider = 'openai'): Promise<string> => {
     try {
       console.log("🚀 Calling Review API with data:", {
         userLevel: data.userLevel,
@@ -109,7 +111,7 @@ export interface GenerateSentencesResponse {
 }
 
 export const sentenceWritingApi = {
-  generateSentences: async (data: GenerateSentencesRequest, provider: 'gemini' | 'openai' = 'gemini'): Promise<GenerateSentencesResponse> => {
+  generateSentences: async (data: GenerateSentencesRequest, provider: AiProvider = 'openai'): Promise<GenerateSentencesResponse> => {
     try {
       const requestBody = {
         Topic: data.topic,
@@ -167,7 +169,7 @@ export const sentenceWritingApi = {
       // Check if it's a network error
       if (error instanceof TypeError) {
         console.error("❌ Network error detected");
-        throw new Error("Không thể kết nối đến server. Vui lòng kiểm tra:\n1. Backend đã chạy chưa?\n2. URL có đúng không? (https://localhost:5000)\n3. CORS có được config chưa?");
+        throw new Error("Không thể kết nối đến server. Vui lòng kiểm tra:\n1. Backend đã chạy chưa?\n2. FE proxy có trỏ đúng BE chưa? (mặc định http://localhost:3000)\n3. CORS/proxy có được config chưa?");
       }
       
       // Re-throw other errors with their original message

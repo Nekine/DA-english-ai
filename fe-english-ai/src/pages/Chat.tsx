@@ -25,7 +25,7 @@ const Consultation: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasError, setHasError] = useState(false);
-  const [aiProvider, setAiProvider] = useState<'gemini' | 'openai'>('gemini');
+  const [aiProvider, setAiProvider] = useState<'gemini' | 'openai' | 'xai'>('openai');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Lấy thông tin người dùng từ AuthContext
@@ -330,6 +330,16 @@ const Consultation: React.FC = () => {
                     }`}
                   >
                     ✨ ChatGPT
+                  </button>
+                  <button
+                    onClick={() => setAiProvider('xai')}
+                    className={`px-3 py-1 rounded-md text-sm font-medium transition-all ${
+                      aiProvider === 'xai'
+                        ? 'bg-orange-500 text-white shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    🧠 Grok
                   </button>
                 </div>
                 <Button

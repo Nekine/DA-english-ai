@@ -15,7 +15,7 @@ const DictionaryResult: React.FC = () => {
     const { toast } = useToast();
     const searchParams = new URLSearchParams(location.search);
     const keyword = searchParams.get('keyword') || '';
-    const provider = (searchParams.get('provider') as 'gemini' | 'openai') || 'gemini';
+    const provider = (searchParams.get('provider') as 'gemini' | 'openai' | 'xai') || 'openai';
 
     const [wordData, setWordData] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);

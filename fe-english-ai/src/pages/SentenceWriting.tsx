@@ -22,7 +22,7 @@ const SentenceWriting = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [isGenerating, setIsGenerating] = useState(false);
-  const [aiProvider, setAiProvider] = useState<'gemini' | 'openai'>('gemini');
+  const [aiProvider, setAiProvider] = useState<'gemini' | 'openai' | 'xai'>('openai');
   const [topicMode, setTopicMode] = useState<"suggested" | "custom">("suggested");
   const [formData, setFormData] = useState({
     topic: "travel", // Mặc định chọn Du lịch
@@ -182,6 +182,13 @@ const SentenceWriting = () => {
             className="transition-all"
           >
             ✨ ChatGPT
+          </Button>
+          <Button
+            variant={aiProvider === 'xai' ? 'default' : 'outline'}
+            onClick={() => setAiProvider('xai')}
+            className="transition-all"
+          >
+            🧠 Grok
           </Button>
         </div>
 

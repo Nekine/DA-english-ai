@@ -25,19 +25,24 @@ interface ApiResponse<T> {
   message?: string;
 }
 
+type AiProvider = 'gemini' | 'openai' | 'xai';
+
 export const dictionaryService = {
   // Search for a word
-  searchWord: async (keyword: string, provider: 'gemini' | 'openai' = 'gemini'): Promise<string | WordDefinition | null> => {
+  searchWord: async (keyword: string, provider: AiProvider = 'openai'): Promise<string | WordDefinition | null> => {
     console.log('DictionaryService: Searching for word:', keyword, 'using provider:', provider);
 
     try {
-      console.log('API URL:', `${apiService.getBaseUrl()}/api/Dictionary/Search?keyword=${encodeURIComponent(keyword)}&provider=${provider}`);
+      const cacheBuster = Date.now();
+      const apiUrl = `${apiService.getBaseUrl()}/api/Dictionary/Search?keyword=${encodeURIComponent(keyword)}&provider=${provider}&_t=${cacheBuster}`;
+      console.log('API URL:', apiUrl);
       console.log('Headers:', apiService.getHeaders());
 
       // Get the raw response first
-      const response = await fetch(`${apiService.getBaseUrl()}/api/Dictionary/Search?keyword=${encodeURIComponent(keyword)}&provider=${provider}`, {
+      const response = await fetch(apiUrl, {
         method: 'GET',
         headers: apiService.getHeaders(),
+        cache: 'no-store',
       });
 
       console.log('Response status:', response.status);
@@ -46,7 +51,21 @@ export const dictionaryService = {
 
       if (!response.ok) {
         console.error('Error response:', response);
-        throw new Error(`Server responded with status: ${response.status}`);
+        const errorText = await response.text();
+        let message = `Server responded with status: ${response.status}`;
+
+        try {
+          const parsed = JSON.parse(errorText) as { message?: string };
+          if (parsed?.message && parsed.message.trim().length > 0) {
+            message = parsed.message;
+          }
+        } catch {
+          if (errorText.trim().length > 0) {
+            message = errorText;
+          }
+        }
+
+        throw new Error(message);
       }
 
       // Check the content type to determine how to process the response

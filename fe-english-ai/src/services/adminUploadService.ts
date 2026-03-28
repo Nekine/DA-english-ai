@@ -3,6 +3,7 @@
 // 🎯 Features: File upload handling, exercise creation from uploaded content
 
 import { Question, ReadingExercise } from './databaseStatsService';
+import { apiService } from './api';
 
 interface BackendQuestion {
   Id?: number;
@@ -75,7 +76,7 @@ class AdminUploadService {
   ): Promise<ReadingExercise> {
     try {
       // Gọi API tạo exercise passage (step 1)
-      const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5283';
+      const apiBaseUrl = apiService.getBaseUrl();
       const createResponse = await fetch(`${apiBaseUrl}/api/ReadingExercise/create-passage`, {
         method: 'POST',
         headers: {

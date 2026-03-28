@@ -14,6 +14,7 @@ import { Upload, FileText, Plus, Minus, Save, Eye, Download, Clock, Users, Folde
 import { SectionBox } from '@/components/admin/SectionBox';
 import { FileRow } from '@/components/admin/FileRow';
 import { adminUploadService } from '@/services/adminUploadService';
+import { apiService } from '@/services/api';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from 'sonner';
 import writingExerciseService, { CreateWritingExerciseRequest, SentenceQuestion, WritingExercise } from '@/services/writingExerciseService';
@@ -151,7 +152,7 @@ const UploadPage = () => {
 
     setIsCreatingPassage(true);
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'https://localhost:5000'}/api/ReadingExercise/create-passage`, {
+      const response = await fetch(`${apiService.getBaseUrl()}/api/ReadingExercise/create-passage`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -226,7 +227,7 @@ const UploadPage = () => {
         orderNumber: index + 1
       }));
 
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'https://localhost:5000'}/api/ReadingExercise/${createdExerciseId}/add-questions`, {
+      const response = await fetch(`${apiService.getBaseUrl()}/api/ReadingExercise/${createdExerciseId}/add-questions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

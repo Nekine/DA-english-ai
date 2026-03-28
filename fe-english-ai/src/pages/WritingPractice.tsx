@@ -33,7 +33,7 @@ const WritingPractice = () => {
   const [questions, setQuestions] = useState<SentenceQuestion[]>([]);
   
   // AI provider state
-  const [aiProvider, setAiProvider] = useState<'gemini' | 'openai'>('gemini');
+  const [aiProvider, setAiProvider] = useState<'gemini' | 'openai' | 'xai'>('openai');
   
   // Essay mode state
   const [essayContent, setEssayContent] = useState('');

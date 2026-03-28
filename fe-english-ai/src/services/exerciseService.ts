@@ -70,9 +70,11 @@ export interface SubmissionResult {
   feedback: string;
 }
 
+type AiProvider = 'gemini' | 'openai' | 'xai';
+
 export const exerciseService = {
   // Generate exercise
-  generateExercise: async (params: ExerciseGenerationParams, provider: 'gemini' | 'openai' = 'gemini'): Promise<ExerciseSet> => {
+  generateExercise: async (params: ExerciseGenerationParams, provider: AiProvider = 'openai'): Promise<ExerciseSet> => {
     try {
       // Format request to match the required structure
       const requestBody = {
@@ -98,7 +100,20 @@ export const exerciseService = {
         console.error('API Error - Status Text:', response.statusText);
         const errorText = await response.text();
         console.error('API Error - Response:', errorText);
-        throw new Error('Failed to generate exercise');
+
+        let message = `Failed to generate exercise (HTTP ${response.status})`;
+        try {
+          const parsed = JSON.parse(errorText) as { message?: string };
+          if (parsed?.message && parsed.message.trim().length > 0) {
+            message = parsed.message;
+          }
+        } catch {
+          if (errorText.trim().length > 0) {
+            message = errorText;
+          }
+        }
+
+        throw new Error(message);
       }
 
       const jsonData = await response.json();

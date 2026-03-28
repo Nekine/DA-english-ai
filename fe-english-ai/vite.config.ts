@@ -5,6 +5,7 @@ import { componentTagger } from "lovable-tagger";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
+  const apiTarget = env.VITE_API_TARGET || "http://localhost:3000";
   
   return {
   base: mode === 'production' ? '/english-mentor-buddy/' : '/',
@@ -15,9 +16,9 @@ export default defineConfig(({ mode }) => {
     // HTTPS is enabled via basicSsl plugin
     proxy: {
       "/api": {
-        target: "https://localhost:5000", // Local API endpoint (HTTPS)
+        target: apiTarget,
         changeOrigin: true,
-        secure: false, // Allow self-signed certificates
+        secure: false,
         rewrite: (path) => path,
       },
     },
