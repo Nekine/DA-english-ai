@@ -9,7 +9,7 @@ import { asyncHandler } from "../utils/async-handler";
 
 export const listeningRoutes = Router();
 
-listeningRoutes.get("/Genres", getListeningGenresHandler);
-listeningRoutes.post("/Generate", generateListeningHandler);
-listeningRoutes.post("/Grade", gradeListeningHandler);
-listeningRoutes.get("/Recent", getRecentListeningHandler);
+listeningRoutes.get("/Genres", asyncHandler(getListeningGenresHandler));
+listeningRoutes.post("/Generate", asyncHandler(generateListeningHandler));
+listeningRoutes.post("/Grade", asyncHandler(gradeListeningHandler));
+listeningRoutes.get("/Recent", asyncHandler(getRecentListeningHandler));

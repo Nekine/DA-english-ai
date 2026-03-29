@@ -111,7 +111,7 @@ export default {
 					'0%, 100%': { transform: 'translateY(0)' },
 					'50%': { transform: 'translateY(-10px)' }
 				},
-				'pulse-suEngBuddye': {
+				'pulse-suDALTKe': {
 					'0%, 100%': { opacity: '1' },
 					'50%': { opacity: '0.8' }
 				}
@@ -123,7 +123,7 @@ export default {
 				'fade-up': 'fade-up 0.8s ease-out',
 				'scale-in': 'scale-in 0.4s ease-out',
 				'float': 'float 5s ease-in-out infinite',
-				'pulse-suEngBuddye': 'pulse-suEngBuddye 3s ease-in-out infinite'
+				'pulse-suDALTKe': 'pulse-suDALTKe 3s ease-in-out infinite'
 			}
 		}
 	},

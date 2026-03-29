@@ -23,7 +23,6 @@ import { teacherReviewRoutes } from "./teacher-review-routes";
 import { userManagementRoutes } from "./user-management-routes";
 import { userProgressRoutes } from "./user-progress-routes";
 import { usersRoutes } from "./users-routes";
-import { writingExerciseRoutes } from "./writing-exercise-routes";
 
 export const apiRoutes = Router();
 
@@ -65,8 +64,6 @@ apiRoutes.use("/Review", reviewRoutes);
 apiRoutes.use("/review", reviewRoutes);
 apiRoutes.use("/SentenceWriting", sentenceWritingRoutes);
 apiRoutes.use("/sentencewriting", sentenceWritingRoutes);
-apiRoutes.use("/writingexercise", writingExerciseRoutes);
-apiRoutes.use("/WritingExercise", writingExerciseRoutes);
 apiRoutes.use("/payment", paymentRoutes);
 apiRoutes.use("/Payment", paymentRoutes);
 apiRoutes.use("/Transaction", transactionRoutes);

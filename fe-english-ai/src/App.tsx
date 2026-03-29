@@ -18,8 +18,6 @@ import Progress from "./pages/Progress";
 import ReadingExercises from "./pages/ReadingExercises";
 import SentenceWriting from "./pages/SentenceWriting";
 import SentencePractice from "./pages/SentencePractice";
-import WritingSentenceLibrary from "./pages/WritingSentenceLibrary";
-import WritingPractice from "./pages/WritingPractice";
 import TeacherReviews from "./pages/TeacherReviews";
 import Chat from "./pages/Chat";
 import NotFound from "./pages/NotFound";
@@ -83,8 +81,6 @@ const App = () => (
                 <Route path="/speaking" element={<Speaking />} />
                 <Route path="/sentence-writing" element={<SentenceWriting />} />
                 <Route path="/sentence-practice" element={<SentencePractice />} />
-                <Route path="/writing-sentence-library" element={<WritingSentenceLibrary />} />
-                <Route path="/writing-practice/:id" element={<WritingPractice />} />
                 
                 <Route path="/chat" element={<Chat />} />
                 <Route path="/teacher-reviews" element={<TeacherReviews />} />

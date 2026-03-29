@@ -63,7 +63,7 @@ export const reviewApi = {
       console.log("📝 Response preview:", result.substring(0, 200));
 
       // Kiểm tra nếu response chứa message lỗi "busy"
-      if (result.includes("CẢNH BÁO") || result.includes("EngBuddy đang bận")) {
+      if (result.includes("CẢNH BÁO") || result.includes("DALTK đang bận")) {
         console.log("⚠️ Backend is busy");
         const busyError = new Error(result) as Error & { isBusyError: boolean };
         busyError.isBusyError = true;
@@ -145,7 +145,7 @@ export const sentenceWritingApi = {
       const result = await response.json();
 
       // Kiểm tra nếu backend busy
-      if (typeof result === 'string' && (result.includes("CẢNH BÁO") || result.includes("EngBuddy đang bận"))) {
+      if (typeof result === 'string' && (result.includes("CẢNH BÁO") || result.includes("DALTK đang bận"))) {
         const busyError = new Error(result) as Error & { isBusyError: boolean };
         busyError.isBusyError = true;
         throw busyError;

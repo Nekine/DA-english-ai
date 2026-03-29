@@ -1,10 +1,25 @@
 import { randomUUID } from "node:crypto";
+import { generateJsonFromProvider, type AiProvider } from "./ai/ai-client";
+import { loadPromptTemplate } from "./ai/prompt-loader";
 
 type ListeningQuestion = {
   Question: string;
   Options: string[];
   RightOptionIndex: number;
   ExplanationInVietnamese: string;
+};
+
+type ListeningQuestionAiPayload = {
+  question?: string;
+  options?: string[];
+  correctAnswerIndex?: number;
+  explanationInVietnamese?: string;
+};
+
+type ListeningAiPayload = {
+  title?: string;
+  transcript?: string;
+  questions?: ListeningQuestionAiPayload[];
 };
 
 type ListeningExercise = {
@@ -30,52 +45,145 @@ const genreMap: Record<number, string> = {
   5: "Business Meeting",
 };
 
+const englishLevelMap: Record<number, string> = {
+  1: "A1 - Beginner",
+  2: "A2 - Elementary",
+  3: "B1 - Intermediate",
+  4: "B2 - Upper Intermediate",
+  5: "C1 - Advanced",
+  6: "C2 - Proficient",
+};
+
+const aiModelProviderMap: Record<number, AiProvider> = {
+  0: "gemini",
+  1: "openai",
+  2: "xai",
+};
+
 export function getListeningGenres() {
   return genreMap;
 }
 
-function buildOptions(answer: string): string[] {
-  return [answer, `${answer}ing`, `${answer}ed`, `${answer}s`];
+function resolveProvider(aiModel: number | undefined): AiProvider {
+  const parsed = Number(aiModel);
+  if (Number.isInteger(parsed) && aiModelProviderMap[parsed]) {
+    return aiModelProviderMap[parsed] as AiProvider;
+  }
+
+  return "openai";
 }
 
-function buildQuestions(totalQuestions: number): ListeningQuestion[] {
-  const questions: ListeningQuestion[] = [];
-  for (let i = 0; i < totalQuestions; i += 1) {
-    const answer = `option${i + 1}`;
-    questions.push({
-      Question: `Choose the best answer for detail #${i + 1}.`,
-      Options: buildOptions(answer),
-      RightOptionIndex: 0,
-      ExplanationInVietnamese: "Dua vao noi dung bai nghe de chon dap an phu hop nhat.",
-    });
+function normalizeAiQuestion(raw: ListeningQuestionAiPayload, questionIndex: number): ListeningQuestion | null {
+  const questionText = String(raw.question ?? "").trim();
+  if (!questionText) {
+    return null;
   }
-  return questions;
+
+  const options = Array.isArray(raw.options)
+    ? raw.options.map((opt) => String(opt ?? "").trim()).filter((opt) => opt.length > 0).slice(0, 4)
+    : [];
+
+  if (options.length < 2) {
+    return null;
+  }
+
+  while (options.length < 4) {
+    options.push(`Option ${String.fromCharCode(65 + options.length)}`);
+  }
+
+  const correctIndexRaw = Number(raw.correctAnswerIndex ?? 0);
+  const correctIndex = Number.isInteger(correctIndexRaw)
+    ? Math.max(0, Math.min(3, correctIndexRaw))
+    : 0;
+
+  const explanation = String(raw.explanationInVietnamese ?? "").trim() || `Giai thich cho cau hoi ${questionIndex + 1}.`;
+
+  return {
+    Question: questionText,
+    Options: options,
+    RightOptionIndex: correctIndex,
+    ExplanationInVietnamese: explanation,
+  };
+}
+
+async function generateListeningFromAi(input: {
+  Genre: number;
+  EnglishLevel: number;
+  TotalQuestions: number;
+  CustomTopic?: string;
+  AiModel?: number;
+}): Promise<Pick<ListeningExercise, "Title" | "Transcript" | "Questions">> {
+  const provider = resolveProvider(input.AiModel);
+  const topic = input.CustomTopic?.trim() || "General listening topic";
+  const genreLabel = getGenreLabel(input.Genre);
+  const levelLabel = englishLevelMap[input.EnglishLevel] ?? `Level ${input.EnglishLevel}`;
+  const totalQuestions = Math.min(15, Math.max(1, Number(input.TotalQuestions) || 5));
+
+  const systemPrompt = loadPromptTemplate("listening-ai.system.prompt.txt");
+  const userPrompt = [
+    `Topic: ${topic}`,
+    `Genre: ${genreLabel}`,
+    `English level: ${levelLabel}`,
+    `Question count: ${totalQuestions}`,
+    "Return strict JSON only.",
+  ].join("\n");
+
+  const generated = await generateJsonFromProvider<ListeningAiPayload>({
+    provider,
+    systemPrompt,
+    userPrompt,
+    temperature: 0.55,
+  });
+
+  const transcript = String(generated.transcript ?? "").trim();
+  if (!transcript) {
+    throw new Error("Listening AI response is missing transcript");
+  }
+
+  const rawQuestions = Array.isArray(generated.questions) ? generated.questions : [];
+  const normalizedQuestions = rawQuestions
+    .slice(0, totalQuestions)
+    .map((question, index) => normalizeAiQuestion(question, index))
+    .filter((question): question is ListeningQuestion => Boolean(question));
+
+  if (normalizedQuestions.length !== totalQuestions) {
+    throw new Error("Listening AI response does not include enough valid questions");
+  }
+
+  const title = String(generated.title ?? "").trim() || `Listening practice - ${genreLabel}`;
+
+  return {
+    Title: title,
+    Transcript: transcript,
+    Questions: normalizedQuestions,
+  };
 }
 
 function getGenreLabel(genre: number): string {
   return genreMap[genre] ?? "General";
 }
 
-export function generateListeningExercise(input: {
+export async function generateListeningExercise(input: {
   Genre: number;
   EnglishLevel: number;
   TotalQuestions: number;
   CustomTopic?: string;
+  AiModel?: number;
 }) {
   const totalQuestions = Math.min(15, Math.max(1, Number(input.TotalQuestions) || 5));
   const exerciseId = randomUUID();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + CACHE_MS);
   const genreLabel = getGenreLabel(input.Genre);
-  const topic = input.CustomTopic?.trim() || "general listening topic";
+  const generated = await generateListeningFromAi({ ...input, TotalQuestions: totalQuestions });
 
   const exercise: ListeningExercise = {
     ExerciseId: exerciseId,
-    Title: `Listening practice - ${genreLabel}`,
+    Title: generated.Title,
     Genre: genreLabel,
     EnglishLevel: Number(input.EnglishLevel) || 1,
-    Transcript: `This is a ${genreLabel.toLowerCase()} transcript about ${topic}.`,
-    Questions: buildQuestions(totalQuestions),
+    Transcript: generated.Transcript,
+    Questions: generated.Questions,
     CreatedAt: now.toISOString(),
     ExpiresAt: expiresAt.toISOString(),
   };

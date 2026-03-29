@@ -5,10 +5,11 @@ import {
   getSpeakingEnglishLevelsHandler,
   getSpeakingTopicsHandler,
 } from "../controllers/speaking/speaking-controller";
+import { asyncHandler } from "../utils/async-handler";
 
 export const speakingRoutes = Router();
 
-speakingRoutes.get("/Topics", getSpeakingTopicsHandler);
-speakingRoutes.get("/EnglishLevels", getSpeakingEnglishLevelsHandler);
-speakingRoutes.post("/Generate", generateSpeakingHandler);
-speakingRoutes.post("/Analyze", analyzeSpeakingHandler);
+speakingRoutes.get("/Topics", asyncHandler(getSpeakingTopicsHandler));
+speakingRoutes.get("/EnglishLevels", asyncHandler(getSpeakingEnglishLevelsHandler));
+speakingRoutes.post("/Generate", asyncHandler(generateSpeakingHandler));
+speakingRoutes.post("/Analyze", asyncHandler(analyzeSpeakingHandler));

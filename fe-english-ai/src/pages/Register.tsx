@@ -177,7 +177,7 @@ const Register: React.FC = () => {
                 <div className="flex flex-col items-center mb-8">
                     <Link to="/" className="flex items-center gap-2 mb-6">
                         <Globe className="h-8 w-8 text-primary" />
-                        <span className="text-3xl font-bold bg-gradient-to-r from-primary via-dictionary to-exercises bg-clip-text text-transparent">EngBuddy</span>
+                        <span className="text-3xl font-bold bg-gradient-to-r from-primary via-dictionary to-exercises bg-clip-text text-transparent">DALTK</span>
                     </Link>
                     <h1 className="text-3xl font-bold dark:text-white mb-2">Đăng ký tài khoản</h1>
                     <p className="text-gray-600 dark:text-gray-400 text-center">
@@ -379,7 +379,7 @@ const Register: React.FC = () => {
 
                 {/* Footer */}
                 <div className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">
-                    <p>© {new Date().getFullYear()} EngBuddy. All rights reserved.</p>
+                    <p>© {new Date().getFullYear()} DALTK. All rights reserved.</p>
                 </div>
             </motion.div>
         </div>

@@ -101,7 +101,7 @@ const Index = () => {
                   <Globe className="h-6 w-6 text-white" />
                 </div>
                 <span className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-pink-600 via-rose-600 to-fuchsia-600 bg-clip-text text-transparent">
-                  EngBuddy
+                  DALTK
                 </span>
                 <span className="hidden sm:inline-block text-sm text-pink-600 dark:text-pink-400 font-medium">
                   | Nền tảng học tiếng Anh thông minh
@@ -111,7 +111,7 @@ const Index = () => {
               <h1 className="text-3xl md:text-5xl lg:text-6xl font-bold tracking-tighter text-slate-900 dark:text-slate-100">
                 Nâng cao kỹ năng tiếng Anh với{" "}
                 <span className="bg-gradient-to-r from-pink-600 via-rose-600 to-fuchsia-600 bg-clip-text text-transparent inline-block">
-                  EngBuddy
+                  DALTK
                 </span>
               </h1>
               <p className="mx-auto max-w-[700px] text-slate-600 dark:text-slate-300 md:text-xl mt-4">
@@ -168,7 +168,7 @@ const Index = () => {
                 Mọi công cụ bạn cần để thành thạo tiếng Anh
               </h2>
               <p className="mx-auto max-w-[700px] text-slate-600 dark:text-slate-300 md:text-lg">
-                EngBuddy kết hợp các tính năng thiết yếu giúp việc học tiếng Anh trở nên hiệu quả và thú vị hơn.
+                DALTK kết hợp các tính năng thiết yếu giúp việc học tiếng Anh trở nên hiệu quả và thú vị hơn.
               </p>
             </div>
           </div>

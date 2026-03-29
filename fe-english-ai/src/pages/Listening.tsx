@@ -18,13 +18,18 @@ const DEFAULT_QUESTION_COUNT = 5;
 const AI_MODEL_OPTIONS = [
   {
     value: AiModel.GeminiFlashLite,
-    label: 'Gemini 2.0 Flash Lite',
+    label: 'Gemini',
     description: 'Tốc độ phản hồi nhanh, chi phí tối ưu.'
   },
   {
     value: AiModel.Gpt5Preview,
-    label: 'GPT 5.1 Preview',
-    description: 'Độ chính xác cao, script sáng tạo hơn (beta).'
+    label: 'ChatGPT',
+    description: 'Độ chính xác cao, script sáng tạo hơn.'
+  },
+  {
+    value: AiModel.Grok42,
+    label: 'Grok',
+    description: 'Khả năng suy luận mạnh, phù hợp tạo script đa dạng.'
   }
 ];
 
@@ -37,7 +42,7 @@ const Listening = () => {
   const [selectedLevel, setSelectedLevel] = useState<string>('3');
   const [questionCount, setQuestionCount] = useState<number>(DEFAULT_QUESTION_COUNT);
   const [customTopic, setCustomTopic] = useState<string>('');
-  const [selectedAiModel, setSelectedAiModel] = useState<AiModel>(AiModel.GeminiFlashLite);
+  const [selectedAiModel, setSelectedAiModel] = useState<AiModel>(AiModel.Gpt5Preview);
   const [isLoading, setIsLoading] = useState(false);
   const [exercise, setExercise] = useState<ListeningExerciseResult | null>(null);
   const [answers, setAnswers] = useState<Record<number, number>>({});

@@ -35,7 +35,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       </main>
       <footer className="py-6 border-t border-border/40 dark:border-border/20">
         <div className="container text-center text-sm text-muted-foreground">
-          <p>© {new Date().getFullYear()} EngBuddy. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} DALTK. All rights reserved.</p>
         </div>
       </footer>
     </div>

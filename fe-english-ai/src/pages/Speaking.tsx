@@ -14,16 +14,41 @@ import { useToast } from '@/hooks/use-toast';
 import { Mic, MicOff, Loader2, MessageSquare, Trophy, Volume2, Sparkles, FileText, AlertCircle, ArrowLeft } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 
+type BrowserSpeechRecognition = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: any) => void) | null;
+  onerror: ((event: any) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: BrowserSpeechRecognitionConstructor;
+    webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
+  }
+}
+
 const AI_MODEL_OPTIONS = [
   {
     value: AiModel.GeminiFlashLite,
-    label: 'Gemini 2.0 Flash Lite',
+    label: 'Gemini',
     description: 'Cân bằng tốc độ/chi phí cho việc tạo đề bài và phân tích.'
   },
   {
     value: AiModel.Gpt5Preview,
-    label: 'GPT 5.1 Preview',
+    label: 'ChatGPT',
     description: 'Độ sáng tạo và đánh giá sâu hơn (beta).'
+  },
+  {
+    value: AiModel.Grok42,
+    label: 'Grok',
+    description: 'Suy luận tốt cho nhận xét chi tiết và gợi ý cải thiện.'
   }
 ];
 
@@ -35,14 +60,17 @@ const Speaking = () => {
   const [selectedTopic, setSelectedTopic] = useState<string>('');
   const [selectedLevel, setSelectedLevel] = useState<string>('3');
   const [customTopic, setCustomTopic] = useState<string>('');
-  const [selectedAiModel, setSelectedAiModel] = useState<AiModel>(AiModel.GeminiFlashLite);
+  const [selectedAiModel, setSelectedAiModel] = useState<AiModel>(AiModel.Gpt5Preview);
   const [isLoading, setIsLoading] = useState(false);
   const [exercise, setExercise] = useState<SpeakingExerciseResult | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [analysisResult, setAnalysisResult] = useState<SpeakingAnalysisResult | null>(null);
   const [exerciseAiModel, setExerciseAiModel] = useState<AiModel | null>(null);
+  const [liveTranscript, setLiveTranscript] = useState<string>('');
+  const [interimTranscript, setInterimTranscript] = useState<string>('');
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const currentAiModelMeta = useMemo(
     () => AI_MODEL_OPTIONS.find(option => option.value === selectedAiModel),
@@ -104,6 +132,8 @@ const Speaking = () => {
       setExerciseAiModel(selectedAiModel);
       setAudioBlob(null);
       setAnalysisResult(null);
+      setLiveTranscript('');
+      setInterimTranscript('');
       toast({
         title: 'Đã tạo bài tập thành công',
         description: 'Hãy đọc đoạn văn và ghi âm giọng nói của bạn.'
@@ -164,6 +194,50 @@ const Speaking = () => {
 
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start();
+
+      const RecognitionClass = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (RecognitionClass) {
+        const recognition = new RecognitionClass();
+        recognition.lang = 'en-US';
+        recognition.continuous = true;
+        recognition.interimResults = true;
+
+        recognition.onresult = (event: any) => {
+          let finalized = '';
+          let interim = '';
+
+          for (let index = event.resultIndex; index < event.results.length; index += 1) {
+            const phrase = String(event.results[index]?.[0]?.transcript ?? '').trim();
+            if (!phrase) {
+              continue;
+            }
+
+            if (event.results[index]?.isFinal) {
+              finalized = `${finalized} ${phrase}`.trim();
+            } else {
+              interim = `${interim} ${phrase}`.trim();
+            }
+          }
+
+          if (finalized) {
+            setLiveTranscript((previous) => `${previous} ${finalized}`.trim());
+          }
+          setInterimTranscript(interim);
+        };
+
+        recognition.onerror = () => {
+          setInterimTranscript('');
+        };
+
+        recognition.onend = () => {
+          speechRecognitionRef.current = null;
+          setInterimTranscript('');
+        };
+
+        recognition.start();
+        speechRecognitionRef.current = recognition;
+      }
+
       setIsRecording(true);
       
       toast({
@@ -183,7 +257,10 @@ const Speaking = () => {
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
+      speechRecognitionRef.current?.stop();
+      speechRecognitionRef.current = null;
       setIsRecording(false);
+      setInterimTranscript('');
       toast({
         title: 'Đã dừng ghi âm',
         description: 'Bạn có thể phân tích giọng nói bây giờ.'
@@ -211,7 +288,8 @@ const Speaking = () => {
           const result = await speakingService.analyzeSpeech({
             ExerciseId: exercise.ExerciseId,
             AudioData: base64Audio,
-            AiModel: aiModelForAnalysis
+            AiModel: aiModelForAnalysis,
+            TranscribedText: liveTranscript.trim() || undefined,
           });
           
           setAnalysisResult(result);
@@ -481,6 +559,15 @@ const Speaking = () => {
                       </audio>
                     </div>
                   )}
+
+                  <div className="w-full max-w-3xl rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-left text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200">
+                    <p className="font-medium">Live transcript (beta):</p>
+                    <p className="mt-1 min-h-[24px]">
+                      {(liveTranscript || interimTranscript)
+                        ? `${liveTranscript} ${interimTranscript}`.trim()
+                        : 'Trinh duyet co the khong ho tro speech recognition. Ban van co the nop bai de nhan phan tich co ban.'}
+                    </p>
+                  </div>
                 </div>
               </div>
             </Card>

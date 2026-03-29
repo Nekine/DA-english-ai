@@ -453,13 +453,29 @@ const Exercises: React.FC = () => {
                     }`}
                 >
                   <p className="font-medium mb-2 text-foreground">{q.Question}</p>
-                  <div className="flex justify-between items-center">
-                    <p className="text-muted-foreground">
-                      Đáp án đúng: {q.Options[q.RightOptionIndex]}
-                    </p>
-                    <p className="text-sm italic text-muted-foreground">
-                      {q.ExplanationInVietnamese}
-                    </p>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Bạn chọn: <span className="font-medium text-foreground">{answers[index + 1] || 'Chưa trả lời'}</span>
+                  </p>
+                  <div className="space-y-2 text-left">
+                    <div className="rounded-md border border-green-200 dark:border-green-800 bg-green-100/60 dark:bg-green-950/40 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-green-700 dark:text-green-300 mb-1">
+                        Đáp án đúng
+                      </p>
+                      <p className="font-medium text-green-900 dark:text-green-100">
+                        {q.Options[q.RightOptionIndex]}
+                      </p>
+                    </div>
+
+                    {q.ExplanationInVietnamese?.trim() ? (
+                      <div className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-100/60 dark:bg-amber-950/40 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300 mb-1">
+                          Mẹo
+                        </p>
+                        <p className="text-sm leading-relaxed text-amber-900 dark:text-amber-100">
+                          {q.ExplanationInVietnamese}
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ))}

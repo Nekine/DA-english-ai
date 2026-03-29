@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import Header from '@/components/Navbar';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, MessageSquare, ArrowLeft, Sparkles, BookOpen } from "lucide-react";
+import { FileText, MessageSquare, ArrowLeft, Sparkles } from "lucide-react";
 
 const WritingMode = () => {
   const navigate = useNavigate();
@@ -106,41 +106,6 @@ const WritingMode = () => {
             </CardContent>
           </Card>
 
-          {/* Sentence Writing Library - Pre-made exercises */}
-          <Card className="cursor-pointer hover:shadow-lg transition-all hover:border-orange-500 group">
-            <CardHeader>
-              <div className="w-12 h-12 rounded-lg bg-orange-600 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <BookOpen className="w-6 h-6 text-white" />
-              </div>
-              <CardTitle className="text-2xl">Bài viết câu có sẵn</CardTitle>
-              <CardDescription className="text-base">
-                Luyện dịch câu với bài tập được thiết kế chi tiết
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2 text-sm text-muted-foreground">
-                <div className="flex items-start gap-2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-orange-600 mt-1.5" />
-                  <span>Câu hỏi có sẵn với đáp án chuẩn</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-orange-600 mt-1.5" />
-                  <span>Có gợi ý từ vựng và ngữ pháp cho mỗi câu</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-orange-600 mt-1.5" />
-                  <span>Phù hợp luyện tập offline hoặc khi AI không hoạt động</span>
-                </div>
-              </div>
-              
-              <Button 
-                className="w-full bg-orange-600 hover:bg-orange-700"
-                onClick={() => navigate("/writing-sentence-library")}
-              >
-                Xem bài tập có sẵn
-              </Button>
-            </CardContent>
-          </Card>
         </div>
       </main>
     </div>

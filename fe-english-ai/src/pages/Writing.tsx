@@ -54,9 +54,9 @@ const Index = () => {
       // Xử lý trường hợp backend busy (201 với message lỗi)
       const busyError = error as { isBusyError?: boolean; message?: string };
       if (busyError.isBusyError) {
-        const message = busyError.message || "## CẢNH BÁO\n EngBuddy đang bận đi pha cà phê nên tạm thời vắng mặt. Cục cưng vui lòng ngồi chơi 3 phút rồi gửi lại cho EngBuddy nhận xét nha.\nYêu cục cưng nhiều lắm luôn á!";
+        const message = busyError.message || "## CẢNH BÁO\n DALTK đang bận đi pha cà phê nên tạm thời vắng mặt. Cục cưng vui lòng ngồi chơi 3 phút rồi gửi lại cho DALTK nhận xét nha.\nYêu cục cưng nhiều lắm luôn á!";
         setReview(message);
-        toast.warning("EngBuddy đang bận, vui lòng thử lại sau 3 phút");
+        toast.warning("DALTK đang bận, vui lòng thử lại sau 3 phút");
         setIsLoading(false);
         return;
       }

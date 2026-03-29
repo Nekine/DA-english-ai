@@ -12,21 +12,33 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useReadingExercises } from "@/hooks/useReadingExercises";
-import { Database, Sparkles, ArrowLeft, BookOpen } from "lucide-react";
+import { Sparkles, ArrowLeft, BookOpen } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
 type Level = 'Beginner' | 'Intermediate' | 'Advanced';
 type Type = 'Part 5' | 'Part 6' | 'Part 7';
 
+const suggestedTopics = [
+  "Business Meeting",
+  "Email Communication",
+  "Customer Service",
+  "Office Announcement",
+  "Travel Schedule",
+  "Job Interview",
+  "Project Deadline",
+  "Sales Report",
+  "Hotel Booking",
+  "Team Collaboration",
+];
+
 const ReadingExercises = () => {
   const navigate = useNavigate();
   const { exercises, isLoading, generateExercise, isGenerating } = useReadingExercises();
   const [selectedExercise, setSelectedExercise] = useState<string | null>(null);
   const [filterLevel, setFilterLevel] = useState<string>("all");
-  const [filterSource, setFilterSource] = useState<string>("all");
-  const [showGenerator, setShowGenerator] = useState(false);
   const [topic, setTopic] = useState("");
+  const [suggestedTopic, setSuggestedTopic] = useState<string>("manual");
   const [level, setLevel] = useState<Level>("Intermediate");
   const [type, setType] = useState<Type>("Part 7");
   const [provider, setProvider] = useState<"gemini" | "openai" | "xai">("openai");
@@ -40,15 +52,10 @@ const ReadingExercises = () => {
   const filteredExercises = exercises
     .filter((exercise) => {
       const levelMatch = filterLevel === "all" || exercise.level === filterLevel;
-      const sourceMatch = filterSource === "all" || exercise.sourceType === filterSource;
-      return levelMatch && sourceMatch;
+      return levelMatch;
     })
     .sort((a, b) => {
-      // Sort by sourceType first (ai before manual)
-      if (a.sourceType === 'ai' && b.sourceType !== 'ai') return -1;
-      if (a.sourceType !== 'ai' && b.sourceType === 'ai') return 1;
-      
-      // Then sort by creation date (newest first)
+      // Sort by creation date (newest first)
       const dateA = new Date(a.createdAt || 0).getTime();
       const dateB = new Date(b.createdAt || 0).getTime();
       return dateB - dateA;
@@ -56,11 +63,18 @@ const ReadingExercises = () => {
 
   const handleGenerate = () => {
     if (!topic.trim()) return;
-    // 🤖 TẠO BÀI BẰNG AI: Gọi hook useReadingExercises để tạo bài tập với AI (Gemini hoặc OpenAI)
+    // 🤖 TẠO BÀI BẰNG AI: Gọi hook useReadingExercises để tạo bài tập với AI (Gemini hoặc OpenAI hoặc Grok)
     // Luồng: Frontend -> useReadingExercises hook -> API call -> Backend controller -> AI service -> Database
     generateExercise({ topic, level, type, provider });
     setTopic("");
-    setShowGenerator(false);
+    setSuggestedTopic("manual");
+  };
+
+  const handleSuggestedTopicChange = (value: string) => {
+    setSuggestedTopic(value);
+    if (value !== "manual") {
+      setTopic(value);
+    }
   };
 
   if (selectedExercise) {
@@ -144,87 +158,87 @@ const ReadingExercises = () => {
               <SelectItem value="Advanced">Advanced</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={filterSource} onValueChange={setFilterSource}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="Source" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Sources</SelectItem>
-                <SelectItem value="manual">Admin Upload</SelectItem>
-              <SelectItem value="ai">AI Generated</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button onClick={() => setShowGenerator(!showGenerator)} variant="default">
-            <Sparkles className="h-4 w-4 mr-2" />
-            Generate with AI
-          </Button>
         </div>
       </div>
 
-      {showGenerator && (
-        <Card className="p-6 bg-gradient-pink border-2">
-          {/* 🤖 FORM TẠO BÀI BẰNG AI: Form tạo bài tập với Gemini AI */}
-          {/* Input: topic, level, type -> Output: Bài tập TOEIC với questions JSON */}
-          <h3 className="font-semibold text-lg mb-4">
-            <Sparkles className="h-5 w-5 inline mr-2" />
-            Generate New Exercise with AI
-          </h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            Choose between Gemini or OpenAI to generate a personalized TOEIC exercise based on your input.
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-            <Input
-              placeholder="Topic (e.g., business meeting, travel, etc.)"
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-              className="col-span-1 md:col-span-2 lg:col-span-1"
-            />
-            <Select value={level} onValueChange={(v) => setLevel(v as Level)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Beginner">Beginner</SelectItem>
-                <SelectItem value="Intermediate">Intermediate</SelectItem>
-                <SelectItem value="Advanced">Advanced</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={type} onValueChange={(v) => setType(v as Type)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Part 5">Part 5 - Grammar</SelectItem>
-                <SelectItem value="Part 6">Part 6 - Text Completion</SelectItem>
-                <SelectItem value="Part 7">Part 7 - Reading Comprehension</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={provider} onValueChange={(v) => setProvider(v as "gemini" | "openai" | "xai")}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="gemini">🤖 Gemini</SelectItem>
-                <SelectItem value="openai">✨ OpenAI GPT</SelectItem>
-                <SelectItem value="xai">🧠 Grok</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button onClick={handleGenerate} disabled={isGenerating || !topic.trim()} className="w-full">
-              {isGenerating ? (
-                <>
-                  <Sparkles className="h-4 w-4 mr-2 animate-spin" />
-                  Generating with AI...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  Generate Exercise
-                </>
-              )}
-            </Button>
-          </div>
-        </Card>
-      )}
+      <Card className="p-6 bg-gradient-pink border-2">
+        {/* 🤖 FORM TẠO BÀI BẰNG AI: Form tạo bài tập với Gemini AI */}
+        {/* Input: topic, level, type -> Output: Bài tập TOEIC với questions JSON */}
+        <h3 className="font-semibold text-lg mb-4">
+          <Sparkles className="h-5 w-5 inline mr-2" />
+          Generate New Exercise with AI
+        </h3>
+        <p className="text-sm text-muted-foreground mb-4">
+          Choose between Gemini or OpenAI to generate a personalized TOEIC exercise based on your input.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+          <Select value={suggestedTopic} onValueChange={handleSuggestedTopicChange}>
+            <SelectTrigger className="col-span-1">
+              <SelectValue placeholder="Chủ đề gợi ý" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="manual">Tự nhập chủ đề</SelectItem>
+              {suggestedTopics.map((item) => (
+                <SelectItem key={item} value={item}>
+                  {item}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            placeholder="Topic (e.g., business meeting, travel, etc.)"
+            value={topic}
+            onChange={(e) => {
+              setTopic(e.target.value);
+              setSuggestedTopic("manual");
+            }}
+            className="col-span-1 md:col-span-2 lg:col-span-2"
+          />
+          <Select value={level} onValueChange={(v) => setLevel(v as Level)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Beginner">Beginner</SelectItem>
+              <SelectItem value="Intermediate">Intermediate</SelectItem>
+              <SelectItem value="Advanced">Advanced</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={type} onValueChange={(v) => setType(v as Type)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Part 5">Part 5 - Grammar</SelectItem>
+              <SelectItem value="Part 6">Part 6 - Text Completion</SelectItem>
+              <SelectItem value="Part 7">Part 7 - Reading Comprehension</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={provider} onValueChange={(v) => setProvider(v as "gemini" | "openai" | "xai")}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="gemini">🤖 Gemini</SelectItem>
+              <SelectItem value="openai">✨ ChatGPT</SelectItem>
+              <SelectItem value="xai">🧠 Grok</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button onClick={handleGenerate} disabled={isGenerating || !topic.trim()} className="w-full">
+            {isGenerating ? (
+              <>
+                <Sparkles className="h-4 w-4 mr-2 animate-spin" />
+                Generating with AI...
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4 mr-2" />
+                Generate Exercise
+              </>
+            )}
+          </Button>
+        </div>
+      </Card>
 
       {isLoading ? (
         <div className="text-center py-12">
@@ -250,17 +264,8 @@ const ReadingExercises = () => {
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="font-semibold text-lg">{exercise.name || 'Untitled Exercise'}</h3>
                     <div className="flex items-center gap-1">
-                      {exercise.sourceType === 'ai' ? (
-                        <>
-                          <Sparkles className="h-4 w-4 text-primary flex-shrink-0" />
-                          <span className="text-xs text-primary font-medium">AI Generated</span>
-                        </>
-                      ) : (
-                        <>
-                          <Database className="h-4 w-4 text-secondary flex-shrink-0" />
-                          <span className="text-xs text-secondary font-medium">Admin Upload</span>
-                        </>
-                      )}
+                      <Sparkles className="h-4 w-4 text-primary flex-shrink-0" />
+                      <span className="text-xs text-primary font-medium">AI Generated</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">

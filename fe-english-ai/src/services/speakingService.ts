@@ -3,6 +3,7 @@ import { apiService } from './api';
 export enum AiModel {
   GeminiFlashLite = 0,
   Gpt5Preview = 1,
+  Grok42 = 2,
 }
 
 export enum SpeakingTopic {
@@ -58,6 +59,7 @@ export interface AnalyzeSpeechPayload {
   ExerciseId: string;
   AudioData: string; // base64
   AiModel: AiModel;
+  TranscribedText?: string;
 }
 
 class SpeakingService {

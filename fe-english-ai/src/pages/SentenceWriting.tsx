@@ -126,7 +126,7 @@ const SentenceWriting = () => {
       // Xử lý trường hợp backend busy
       const busyError = error as { isBusyError?: boolean; message?: string };
       if (busyError.isBusyError) {
-        toast.warning("EngBuddy đang bận, vui lòng thử lại sau 3 phút");
+        toast.warning("DALTK đang bận, vui lòng thử lại sau 3 phút");
         setIsGenerating(false);
         return;
       }
