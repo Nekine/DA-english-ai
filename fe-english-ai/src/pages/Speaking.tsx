@@ -565,7 +565,7 @@ const Speaking = () => {
                     <p className="mt-1 min-h-[24px]">
                       {(liveTranscript || interimTranscript)
                         ? `${liveTranscript} ${interimTranscript}`.trim()
-                        : 'Trinh duyet co the khong ho tro speech recognition. Ban van co the nop bai de nhan phan tich co ban.'}
+                        : 'Trình duyệt có thể không hỗ trợ speech recognition. Bạn vẫn có thể nộp bài để nhận phân tích cơ bản.'}
                     </p>
                   </div>
                 </div>

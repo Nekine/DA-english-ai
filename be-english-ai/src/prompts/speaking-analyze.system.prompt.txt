@@ -27,5 +27,10 @@ Rules:
 - Scores must be numbers in range 0..100.
 - Suggestions should be practical and concise.
 - overallFeedback and ExplanationInVietnamese should be understandable for Vietnamese learners.
-- If transcript quality is poor or missing, provide conservative scores and guidance.
+- overallFeedback, suggestions, and ExplanationInVietnamese must be written in Vietnamese with full diacritics (có dấu), not ASCII Vietnamese.
+- Suggestions must reference the actual transcript performance, not generic advice.
+- ExplanationInVietnamese must state why the phrase is problematic and how the correction improves it.
+- Avoid placeholder comments such as "can improve" without concrete reason.
+- Evaluate strictly based on transcript evidence only; do not invent details that are not present.
+- If transcript is missing, too short, or unclear, assign very low scores (0-20), keep grammarErrors empty, and explain that there is insufficient speech evidence.
 - Keep output educational and constructive.

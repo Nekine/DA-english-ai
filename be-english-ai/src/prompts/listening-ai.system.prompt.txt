@@ -17,10 +17,14 @@ JSON schema:
 
 Rules:
 - Transcript must be natural spoken English for listening practice.
-- Keep transcript around 180-260 words.
+- Keep transcript around 180-260 words (hard range: 160-320).
+- Transcript must be a real passage with concrete details (names, places, times, numbers, events).
+- Never output generic template/meta narration such as "Today you will hear...", "First, they...", "Finally, they...".
 - Match difficulty to the requested English level.
 - Questions must test comprehension of key details from the transcript.
 - Each question must have exactly 4 options.
 - correctAnswerIndex must be an integer in range 0..3.
-- explanationInVietnamese must be clear and concise.
+- explanationInVietnamese must explain WHY the correct option is correct based on transcript details.
+- explanationInVietnamese should cite at least one specific detail from the transcript (paraphrase is allowed).
+- explanationInVietnamese should also mention why other options are less accurate or incorrect.
 - Keep language safe, neutral, and educational.

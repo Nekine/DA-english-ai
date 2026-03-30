@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '@/components/Navbar';
 import { Button } from '@/components/ui/button';
@@ -49,6 +49,8 @@ const Listening = () => {
   const [gradeResult, setGradeResult] = useState<ListeningGradeResult | null>(null);
   const [showTranscript, setShowTranscript] = useState<boolean>(false);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
+  const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const userStoppedSpeechRef = useRef<boolean>(false);
   const [recentExercises, setRecentExercises] = useState<ListeningExerciseSummary[]>([]);
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
   const [isHistoryLoading, setIsHistoryLoading] = useState<boolean>(false);
@@ -134,9 +136,18 @@ const Listening = () => {
 
     // Cleanup: stop speech when component unmounts
     return () => {
+      userStoppedSpeechRef.current = true;
       window.speechSynthesis.cancel();
+      currentUtteranceRef.current = null;
     };
   }, [toast]);
+
+  const stopTranscriptReading = () => {
+    userStoppedSpeechRef.current = true;
+    window.speechSynthesis.cancel();
+    currentUtteranceRef.current = null;
+    setIsSpeaking(false);
+  };
 
   const handleGenerateExercise = async () => {
     if (!selectedGenre) {
@@ -163,9 +174,7 @@ const Listening = () => {
       setAnswers({});
       setGradeResult(null);
       setShowTranscript(false);
-      setIsSpeaking(false);
-      // Stop any ongoing speech
-      window.speechSynthesis.cancel();
+      stopTranscriptReading();
       toast({
         title: 'Đã tạo bài nghe thành công',
         description: 'Hãy lắng nghe và trả lời các câu hỏi bên dưới.'
@@ -237,23 +246,43 @@ const Listening = () => {
     }
 
     if (isSpeaking) {
-      // Stop reading
-      window.speechSynthesis.cancel();
-      setIsSpeaking(false);
+      stopTranscriptReading();
     } else {
       // Start reading
+      userStoppedSpeechRef.current = true;
+      window.speechSynthesis.cancel();
+
       const utterance = new SpeechSynthesisUtterance(exercise.Transcript);
       utterance.lang = 'en-US';
       utterance.rate = 0.9; // Slightly slower for better comprehension
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
 
+      userStoppedSpeechRef.current = false;
+      currentUtteranceRef.current = utterance;
+
       utterance.onend = () => {
+        if (currentUtteranceRef.current === utterance) {
+          currentUtteranceRef.current = null;
+        }
         setIsSpeaking(false);
       };
 
-      utterance.onerror = () => {
+      utterance.onerror = (event: SpeechSynthesisErrorEvent) => {
+        if (currentUtteranceRef.current === utterance) {
+          currentUtteranceRef.current = null;
+        }
+
         setIsSpeaking(false);
+
+        const cancelledByUser =
+          userStoppedSpeechRef.current || event.error === 'canceled' || event.error === 'interrupted';
+
+        if (cancelledByUser) {
+          userStoppedSpeechRef.current = false;
+          return;
+        }
+
         toast({
           title: 'Không thể đọc văn bản',
           description: 'Trình duyệt của bạn có thể không hỗ trợ tính năng này.',
@@ -261,7 +290,6 @@ const Listening = () => {
         });
       };
 
-      window.speechSynthesis.cancel(); // Clear any existing speech
       window.speechSynthesis.speak(utterance);
       setIsSpeaking(true);
     }

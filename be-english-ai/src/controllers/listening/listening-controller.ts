@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { HTTP_STATUS } from "../../constants/http-status";
 import { getHttpStatusFromError } from "../../services/ai/ai-client";
+import { logger } from "../../utils/logger";
 import {
   generateListeningExercise,
   getListeningGenres,
@@ -25,8 +26,19 @@ export async function generateListeningHandler(req: Request, res: Response): Pro
     const exercise = await generateListeningExercise(body);
     res.status(HTTP_STATUS.OK).json(exercise);
   } catch (error) {
-    const status = getHttpStatusFromError(error, HTTP_STATUS.BAD_REQUEST);
+    const status = getHttpStatusFromError(error, 502);
     const message = error instanceof Error ? error.message : "Failed to generate listening exercise";
+
+    logger.warn("Listening generate failed", {
+      status,
+      message,
+      genre: body?.Genre,
+      englishLevel: body?.EnglishLevel,
+      totalQuestions: body?.TotalQuestions,
+      aiModel: body?.AiModel,
+      hasCustomTopic: typeof body?.CustomTopic === "string" && body.CustomTopic.trim().length > 0,
+    });
+
     res.status(status).json({ message });
   }
 }

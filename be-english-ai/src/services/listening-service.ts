@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { generateJsonFromProvider, type AiProvider } from "./ai/ai-client";
 import { loadPromptTemplate } from "./ai/prompt-loader";
+import { logger } from "../utils/logger";
 
 type ListeningQuestion = {
   Question: string;
@@ -21,6 +22,216 @@ type ListeningAiPayload = {
   transcript?: string;
   questions?: ListeningQuestionAiPayload[];
 };
+
+const MIN_TRANSCRIPT_WORDS = 160;
+const MAX_TRANSCRIPT_WORDS = 320;
+const MAX_AI_PARSE_ATTEMPTS = 3;
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function readFirstString(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  }
+
+  return "";
+}
+
+function readFirstArray(record: Record<string, unknown>, keys: string[]): unknown[] {
+  for (const key of keys) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      return value;
+    }
+  }
+
+  return [];
+}
+
+function normalizeListeningAiPayload(payload: ListeningAiPayload | unknown): {
+  title: string;
+  transcript: string;
+  questions: unknown[];
+} {
+  const root = asRecord(payload);
+  if (!root) {
+    return { title: "", transcript: "", questions: [] };
+  }
+
+  const contentRoot = asRecord(root.data) ?? asRecord(root.result) ?? root;
+
+  const title = readFirstString(contentRoot, ["title", "Title"]);
+  const transcript = readFirstString(contentRoot, [
+    "transcript",
+    "Transcript",
+    "passage",
+    "Passage",
+    "script",
+    "Script",
+    "content",
+    "Content",
+  ]);
+  const questions = readFirstArray(contentRoot, ["questions", "Questions", "items", "Items", "quiz", "Quiz"]);
+
+  return { title, transcript, questions };
+}
+
+function resolveCorrectAnswerIndex(record: Record<string, unknown>, options: string[]): number {
+  const directIndexKeys = ["correctAnswerIndex", "correctOptionIndex", "rightOptionIndex", "answerIndex", "CorrectAnswerIndex"];
+  for (const key of directIndexKeys) {
+    const num = Number(record[key]);
+    if (Number.isInteger(num)) {
+      if (num >= 1 && num <= options.length) {
+        return num - 1;
+      }
+      return Math.max(0, Math.min(3, num));
+    }
+  }
+
+  const answerToken = String(
+    record.correctAnswer ??
+      record.CorrectAnswer ??
+      record.answer ??
+      record.Answer ??
+      "",
+  )
+    .trim()
+    .toUpperCase();
+
+  if (/^[A-D]$/.test(answerToken)) {
+    return answerToken.charCodeAt(0) - 65;
+  }
+
+  if (answerToken.length > 0) {
+    const indexByOptionText = options.findIndex((option) => option.trim().toUpperCase() === answerToken);
+    if (indexByOptionText >= 0) {
+      return indexByOptionText;
+    }
+  }
+
+  return 0;
+}
+
+function countWords(value: string): number {
+  return value.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function isTemplateTranscript(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return /today\s+you\s+will\s+hear|first,\s+they\s+introduce\s+the\s+situation|summarize\s+the\s+main\s+takeaway/.test(normalized);
+}
+
+function buildListeningUserPrompt(input: {
+  topic: string;
+  genreLabel: string;
+  levelLabel: string;
+  totalQuestions: number;
+  previousIssues?: string[];
+}): string {
+  const parts = [
+    `Topic: ${input.topic}`,
+    `Genre: ${input.genreLabel}`,
+    `English level: ${input.levelLabel}`,
+    `Question count: ${input.totalQuestions}`,
+    `Transcript length: ${MIN_TRANSCRIPT_WORDS}-${MAX_TRANSCRIPT_WORDS} words`,
+    "Transcript MUST be a real listening passage with concrete details (names, places, times, numbers, events).",
+    "Do NOT output template/meta text like 'Today you will hear...' or step-by-step placeholders.",
+    "Each explanationInVietnamese must cite why the correct option is correct from transcript content and briefly why other options are wrong.",
+    "Return strict JSON only.",
+  ];
+
+  if (input.previousIssues && input.previousIssues.length > 0) {
+    parts.push(`Previous output was invalid. Fix these issues exactly: ${input.previousIssues.join("; ")}.`);
+  }
+
+  return parts.join("\n");
+}
+
+function isGenericExplanation(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+
+  return /giai\s*thich\s*cho\s*cau\s*hoi|explanation\s*for\s*question|dap\s*an\s*[a-d]\s*phu\s*hop\s*nhat/.test(normalized);
+}
+
+function pickEvidenceSentence(transcript: string, optionText: string): string {
+  const sentences = transcript
+    .split(/(?<=[.!?])\s+/)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+
+  if (sentences.length === 0) {
+    return "";
+  }
+
+  const optionTokens = optionText
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4);
+
+  if (optionTokens.length === 0) {
+    return sentences[0] ?? "";
+  }
+
+  let bestSentence = "";
+  let bestScore = -1;
+  for (const sentence of sentences) {
+    const sentenceLower = sentence.toLowerCase();
+    const score = optionTokens.reduce((sum, token) => (sentenceLower.includes(token) ? sum + 1 : sum), 0);
+    if (score > bestScore) {
+      bestScore = score;
+      bestSentence = sentence;
+    }
+  }
+
+  if (bestScore <= 0) {
+    return sentences[0] ?? "";
+  }
+
+  return bestSentence;
+}
+
+function buildDetailedExplanation(question: ListeningQuestion, transcript: string): string {
+  const correctIndex = Math.max(0, Math.min(question.Options.length - 1, question.RightOptionIndex));
+  const correctOption = question.Options[correctIndex] ?? "";
+  const correctLabel = String.fromCharCode(65 + correctIndex);
+  const evidence = pickEvidenceSentence(transcript, correctOption);
+
+  const base = `Dap an dung la ${correctLabel}: ${correctOption}.`;
+  if (evidence) {
+    return `${base} Can cu tu transcript: "${evidence}". Cac lua chon con lai khong trung voi thong tin duoc de cap.`;
+  }
+
+  return `${base} Noi dung transcript ung ho y nay, trong khi cac dap an con lai khong phu hop ngu canh bai nghe.`;
+}
+
+function ensureQuestionExplanations(questions: ListeningQuestion[], transcript: string): ListeningQuestion[] {
+  return questions.map((question) => {
+    if (!isGenericExplanation(question.ExplanationInVietnamese)) {
+      return question;
+    }
+
+    return {
+      ...question,
+      ExplanationInVietnamese: buildDetailedExplanation(question, transcript),
+    };
+  });
+}
 
 type ListeningExercise = {
   ExerciseId: string;
@@ -73,15 +284,19 @@ function resolveProvider(aiModel: number | undefined): AiProvider {
   return "openai";
 }
 
-function normalizeAiQuestion(raw: ListeningQuestionAiPayload, questionIndex: number): ListeningQuestion | null {
-  const questionText = String(raw.question ?? "").trim();
+function normalizeAiQuestion(raw: ListeningQuestionAiPayload | unknown, questionIndex: number): ListeningQuestion | null {
+  const record = asRecord(raw);
+  if (!record) {
+    return null;
+  }
+
+  const questionText = readFirstString(record, ["question", "Question", "text", "Text", "content", "Content"]);
   if (!questionText) {
     return null;
   }
 
-  const options = Array.isArray(raw.options)
-    ? raw.options.map((opt) => String(opt ?? "").trim()).filter((opt) => opt.length > 0).slice(0, 4)
-    : [];
+  const rawOptions = readFirstArray(record, ["options", "Options", "choices", "Choices", "answers", "Answers"]);
+  const options = rawOptions.map((opt) => String(opt ?? "").trim()).filter((opt) => opt.length > 0).slice(0, 4);
 
   if (options.length < 2) {
     return null;
@@ -91,12 +306,17 @@ function normalizeAiQuestion(raw: ListeningQuestionAiPayload, questionIndex: num
     options.push(`Option ${String.fromCharCode(65 + options.length)}`);
   }
 
-  const correctIndexRaw = Number(raw.correctAnswerIndex ?? 0);
-  const correctIndex = Number.isInteger(correctIndexRaw)
-    ? Math.max(0, Math.min(3, correctIndexRaw))
-    : 0;
+  const correctIndex = resolveCorrectAnswerIndex(record, options);
 
-  const explanation = String(raw.explanationInVietnamese ?? "").trim() || `Giai thich cho cau hoi ${questionIndex + 1}.`;
+  const explanation =
+    readFirstString(record, [
+      "explanationInVietnamese",
+      "ExplanationInVietnamese",
+      "explanation",
+      "Explanation",
+      "reason",
+      "Reason",
+    ]) || "";
 
   return {
     Question: questionText,
@@ -120,43 +340,75 @@ async function generateListeningFromAi(input: {
   const totalQuestions = Math.min(15, Math.max(1, Number(input.TotalQuestions) || 5));
 
   const systemPrompt = loadPromptTemplate("listening-ai.system.prompt.txt");
-  const userPrompt = [
-    `Topic: ${topic}`,
-    `Genre: ${genreLabel}`,
-    `English level: ${levelLabel}`,
-    `Question count: ${totalQuestions}`,
-    "Return strict JSON only.",
-  ].join("\n");
+  let previousIssues: string[] = [];
 
-  const generated = await generateJsonFromProvider<ListeningAiPayload>({
-    provider,
-    systemPrompt,
-    userPrompt,
-    temperature: 0.55,
-  });
+  for (let attempt = 1; attempt <= MAX_AI_PARSE_ATTEMPTS; attempt += 1) {
+    const userPrompt = buildListeningUserPrompt({
+      topic,
+      genreLabel,
+      levelLabel,
+      totalQuestions,
+      ...(previousIssues.length > 0 ? { previousIssues } : {}),
+    });
 
-  const transcript = String(generated.transcript ?? "").trim();
-  if (!transcript) {
-    throw new Error("Listening AI response is missing transcript");
+    const generated = await generateJsonFromProvider<ListeningAiPayload>({
+      provider,
+      systemPrompt,
+      userPrompt,
+      temperature: 0.55,
+    });
+
+    const normalizedPayload = normalizeListeningAiPayload(generated);
+    const transcript = normalizedPayload.transcript;
+    const transcriptWords = countWords(transcript);
+
+    const rawQuestions = normalizedPayload.questions;
+    const normalizedQuestions = rawQuestions
+      .slice(0, totalQuestions)
+      .map((question, index) => normalizeAiQuestion(question, index))
+      .filter((question): question is ListeningQuestion => Boolean(question));
+
+    const issues: string[] = [];
+    if (!transcript) {
+      issues.push("Missing transcript");
+    } else {
+      if (isTemplateTranscript(transcript)) {
+        issues.push("Transcript looks like template text, not a real passage");
+      }
+      if (transcriptWords < MIN_TRANSCRIPT_WORDS || transcriptWords > MAX_TRANSCRIPT_WORDS) {
+        issues.push(`Transcript length must be ${MIN_TRANSCRIPT_WORDS}-${MAX_TRANSCRIPT_WORDS} words`);
+      }
+    }
+
+    if (normalizedQuestions.length !== totalQuestions) {
+      issues.push(`Need ${totalQuestions} valid questions with 4 options each and valid correctAnswerIndex`);
+    }
+
+    if (issues.length === 0) {
+      const title = normalizedPayload.title || `Listening practice - ${genreLabel}`;
+      const explainedQuestions = ensureQuestionExplanations(normalizedQuestions, transcript);
+
+      return {
+        Title: title,
+        Transcript: transcript,
+        Questions: explainedQuestions,
+      };
+    }
+
+    logger.warn("Listening AI payload validation failed", {
+      provider,
+      attempt,
+      maxAttempts: MAX_AI_PARSE_ATTEMPTS,
+      issues,
+      transcriptWords,
+      validQuestions: normalizedQuestions.length,
+      requestedQuestions: totalQuestions,
+    });
+
+    previousIssues = issues;
   }
 
-  const rawQuestions = Array.isArray(generated.questions) ? generated.questions : [];
-  const normalizedQuestions = rawQuestions
-    .slice(0, totalQuestions)
-    .map((question, index) => normalizeAiQuestion(question, index))
-    .filter((question): question is ListeningQuestion => Boolean(question));
-
-  if (normalizedQuestions.length !== totalQuestions) {
-    throw new Error("Listening AI response does not include enough valid questions");
-  }
-
-  const title = String(generated.title ?? "").trim() || `Listening practice - ${genreLabel}`;
-
-  return {
-    Title: title,
-    Transcript: transcript,
-    Questions: normalizedQuestions,
-  };
+  throw new Error("Listening AI returned invalid format after retries. Please generate again.");
 }
 
 function getGenreLabel(genre: number): string {
