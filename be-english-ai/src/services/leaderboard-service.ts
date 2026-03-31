@@ -1,4 +1,6 @@
 import { leaderboardRepository, type LeaderboardRow } from "../database/repositories/leaderboard-repository";
+import { appConfig } from "../config";
+import { logger } from "../utils/logger";
 
 function toIso(value: Date | null): string {
   return value ? value.toISOString() : new Date().toISOString();
@@ -45,13 +47,34 @@ export async function getLeaderboard(input: {
   const limitRaw = Number(input.limit ?? 50);
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
 
-  const rows = await leaderboardRepository.getLeaderboard({
-    limit,
-    ...(input.timeFilter ? { timeFilter: input.timeFilter } : {}),
-    ...(input.search ? { search: input.search } : {}),
-  });
+  const normalizedTimeFilter =
+    input.timeFilter === "weekly"
+      ? "week"
+      : input.timeFilter === "monthly"
+        ? "month"
+        : input.timeFilter;
 
-  return rows.map(mapEntry);
+  try {
+    const rows = await leaderboardRepository.getLeaderboard({
+      limit,
+      ...(normalizedTimeFilter ? { timeFilter: normalizedTimeFilter } : {}),
+      ...(input.search ? { search: input.search } : {}),
+    });
+
+    return rows.map(mapEntry);
+  } catch (error) {
+    logger.error("Failed to load leaderboard", {
+      message: error instanceof Error ? error.message : String(error),
+      timeFilter: normalizedTimeFilter ?? "",
+      limit,
+    });
+
+    if (appConfig.env !== "production") {
+      return [];
+    }
+
+    throw error;
+  }
 }
 
 export async function getLeaderboardUserRank(userId: number) {

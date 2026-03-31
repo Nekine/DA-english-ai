@@ -1,207 +1,361 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { motion } from 'framer-motion';
-import { Link } from 'react-router-dom'; // Import Link from react-router-dom
-import FeatureCard from '@/components/FeatureCard';
-import FeatureCardWithSubmenu from '@/components/FeatureCardWithSubmenu';
-import { Book, GraduationCap, MessageCircle, Globe, Pencil, ExternalLink, FileText, TrendingUp, Trophy, BookOpen, Headphones, Mic, ChevronDown, CheckCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import {
+  Book,
+  GraduationCap,
+  MessageCircle,
+  Globe,
+  FileText,
+  TrendingUp,
+  Trophy,
+  BookOpen,
+  Headphones,
+  Mic,
+  Pencil,
+  ChevronDown,
+  ChevronRight,
+  Sparkles,
+  Star,
+} from 'lucide-react';
 import MainLayout from '@/layouts/MainLayout';
 import { useAuth0Integration } from '@/hooks/useAuth0Integration';
+import { useDatabaseLeaderboard } from '@/hooks/useDatabaseStats';
 
-const features = [
+const quickActions = [
   {
-    title: 'Bảng xếp hạng',
-    description: 'Cạnh tranh với những người học khác, xem thứ hạng của bạn và động lực phấn đấu hơn nữa.',
-    icon: Trophy,
-    path: '/leaderboard',
-    color: 'text-yellow-600',
-    bgColor: 'bg-gradient-to-br from-yellow-50 to-orange-50 dark:from-yellow-950/50 dark:to-orange-950/50',
+    title: 'Chat với AI',
+    description: 'Hỏi - đáp, giải thích và luyện hội thoại theo chủ đề bạn chọn.',
+    icon: MessageCircle,
+    path: '/chat',
+    accent: 'from-rose-500/20 via-pink-500/10 to-transparent',
+    tone: 'text-rose-600',
+  },
+  {
+    title: 'Từ điển thông minh',
+    description: 'Tra cứu kèm ví dụ, collocations và ngữ cảnh thực tế.',
+    icon: Book,
+    path: '/dictionary',
+    accent: 'from-amber-500/20 via-orange-500/10 to-transparent',
+    tone: 'text-amber-600',
   },
   {
     title: 'Tiến độ học tập',
-    description: 'Theo dõi quá trình học tập của bạn với biểu đồ chi tiết, thống kê điểm số và các mục tiêu đạt được.',
+    description: 'Theo dõi điểm mạnh - điểm cần cải thiện của bạn mỗi tuần.',
     icon: TrendingUp,
     path: '/progress',
-    color: 'text-blue-600',
-    bgColor: 'bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-950/50 dark:to-cyan-950/50',
+    accent: 'from-sky-500/20 via-cyan-500/10 to-transparent',
+    tone: 'text-sky-600',
+  },
+];
+
+const practiceTracks = [
+  {
+    title: 'Luyện nghe',
+    description: 'Nghe đoạn hội thoại thực tế, trả lời câu hỏi kèm giải thích.',
+    icon: Headphones,
+    path: '/listening',
+    tag: 'AI Listening',
   },
   {
-    title: 'Kết quả chấm bài',
-    description: 'Xem chi tiết các bài tập đã được giáo viên chấm lại với nhận xét và điểm số cập nhật.',
-    icon: CheckCircle,
-    path: '/teacher-reviews',
-    color: 'text-purple-600',
-    bgColor: 'bg-gradient-to-br from-purple-50 to-indigo-50 dark:from-purple-950/50 dark:to-indigo-950/50',
+    title: 'Luyện nói',
+    description: 'Ghi âm, nhận phân tích chi tiết về phát âm và độ trôi chảy.',
+    icon: Mic,
+    path: '/speaking',
+    tag: 'Speaking Coach',
   },
   {
-    title: 'Chat với AI',
-    description: 'Trò chuyện với trợ lý AI thông minh để được hướng dẫn, giải thích và luyện tập tiếng Anh trong tình huống thực tế.',
-    icon: MessageCircle,
-    path: '/chat',
-    color: 'text-rose-600',
-    bgColor: 'bg-gradient-to-br from-rose-50 to-pink-50 dark:from-rose-950/50 dark:to-pink-950/50',
-  },
-  {
-    title: 'Từ điển',
-    description: 'Tra cứu từ vựng với định nghĩa chi tiết, ví dụ thực tế và gợi ý sử dụng trong nhiều ngữ cảnh khác nhau.',
-    icon: Book,
-    path: '/dictionary',
-    color: 'text-pink-600',
-    bgColor: 'bg-gradient-to-br from-pink-50 to-rose-50 dark:from-pink-950/50 dark:to-rose-950/50',
-  },
-  {
-    title: 'Bài tập',
-    description: 'Luyện tập các kỹ năng tiếng Anh toàn diện với đa dạng loại bài tập: ngữ pháp, nghe, nói, đọc hiểu và viết.',
+    title: 'Ngữ pháp & Bài tập',
+    description: 'Chuỗi bài tập theo trình độ, tập trung vào lỗi phổ biến.',
     icon: GraduationCap,
-    color: 'text-fuchsia-600',
-    bgColor: 'bg-gradient-to-br from-fuchsia-50 to-purple-50 dark:from-fuchsia-950/50 dark:to-purple-950/50',
-    subItems: [
-      { name: 'Ngữ pháp', path: '/exercises' },
-      { name: 'Luyện nghe', path: '/listening' },
-      { name: 'Luyện nói', path: '/speaking' },
-      { name: 'Đọc hiểu', path: '/reading-exercises' },
-      { name: 'Viết', path: '/writing-mode' },
-    ]
+    path: '/exercises',
+    tag: 'Practice Sets',
   },
   {
-    title: 'Luyện Đề TOEIC',
-    description: 'Hệ thống đề thi TOEIC đầy đủ với giải thích chi tiết, giúp bạn ôn luyện hiệu quả cho kỳ thi.',
+    title: 'Luyện viết',
+    description: 'Nhận gợi ý cải thiện bài viết và sửa lỗi theo ngữ cảnh.',
+    icon: Pencil,
+    path: '/writing-mode',
+    tag: 'Writing Lab',
+  },
+  {
+    title: 'Đọc hiểu',
+    description: 'Đề bài theo chủ đề, giúp tăng tốc độ đọc và hiểu sâu.',
+    icon: BookOpen,
+    path: '/reading-exercises',
+    tag: 'Reading Flow',
+  },
+  {
+    title: 'Luyện đề TOEIC',
+    description: 'Kho đề mô phỏng cập nhật, chiến lược làm bài hiệu quả.',
     icon: FileText,
     path: '/test-list',
-    color: 'text-blue-600',
-    bgColor: 'bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-950/50 dark:to-cyan-950/50',
-  }
-
+    tag: 'Exam Mode',
+  },
 ];
 
 const Index = () => {
-  // Tích hợp Auth0 để tự động đồng bộ user khi đăng nhập
   useAuth0Integration();
 
-  const scrollToFeatures = () => {
-    const featuresSection = document.getElementById('features');
-    if (featuresSection) {
-      featuresSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const leaderboardQuery = useDatabaseLeaderboard('weekly', 5);
+  const leaderboardData = leaderboardQuery.data ?? [];
+  const topLearners = leaderboardData.slice(0, 5);
+
+  const leaderboardContent = leaderboardQuery.isLoading ? (
+    <p className="text-sm text-slate-500">Đang tải dữ liệu...</p>
+  ) : topLearners.length === 0 ? (
+    <p className="text-sm text-slate-500">Chưa có dữ liệu xếp hạng.</p>
+  ) : (
+    topLearners.map((entry) => (
+      <div key={entry.userId} className="flex items-center justify-between text-sm">
+        <span className="font-semibold text-slate-700 dark:text-slate-200">
+          #{entry.rank} {entry.fullName || entry.username}
+        </span>
+        <span className="text-slate-500">{entry.weeklyXp ?? entry.totalXp} XP</span>
+      </div>
+    ))
+  );
+
+  const scrollToPracticeTracks = () => {
+    const section = document.getElementById('practice-tracks');
+    if (section) {
+      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   };
 
   return (
     <MainLayout>
-      {/* Hero Section */}
-      <section className="pt-4 pb-20 md:pt-10 md:pb-32 overflow-hidden bg-gradient-to-br from-pink-50 via-rose-50 to-fuchsia-50 dark:from-pink-950 dark:via-rose-950 dark:to-fuchsia-950">
-        <div className="container px-4 md:px-6">
-          <div className="flex flex-col items-center text-center space-y-4 md:space-y-8">
+      <section className="relative overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(255,210,233,0.75),_transparent_55%),radial-gradient(circle_at_bottom,_rgba(159,238,255,0.4),_transparent_55%)] dark:bg-[radial-gradient(circle_at_top,_rgba(98,28,47,0.8),_transparent_60%),radial-gradient(circle_at_bottom,_rgba(12,42,59,0.6),_transparent_55%)]">
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute -top-24 right-[-10%] h-72 w-72 rounded-full bg-rose-300/40 blur-3xl" />
+          <div className="absolute bottom-[-10%] left-[-10%] h-72 w-72 rounded-full bg-sky-300/40 blur-3xl" />
+        </div>
+
+        <div className="container relative px-4 md:px-6 pt-12 pb-16 md:pt-16 md:pb-20 font-body">
+          <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.7, ease: "easeOut" }}
-              className="space-y-2"
+              transition={{ duration: 0.7, ease: 'easeOut' }}
+              className="space-y-6"
             >
-              <div className="flex items-center justify-center gap-2 mb-4">
-                <div className="p-2 rounded-full bg-gradient-to-r from-pink-400 to-rose-500 shadow-lg shadow-pink-200/50">
-                  <Globe className="h-6 w-6 text-white" />
-                </div>
-                <span className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-pink-600 via-rose-600 to-fuchsia-600 bg-clip-text text-transparent">
-                  DALTK
-                </span>
-                <span className="hidden sm:inline-block text-sm text-pink-600 dark:text-pink-400 font-medium">
-                  | Nền tảng học tiếng Anh thông minh
-                </span>
+              <div className="inline-flex items-center gap-2 rounded-full border border-rose-200/60 bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-rose-600 shadow-sm shadow-rose-200/40 dark:border-rose-400/30 dark:bg-rose-950/40 dark:text-rose-200">
+                <Sparkles className="h-4 w-4" />
+                AI English Studio
               </div>
 
-              <h1 className="text-3xl md:text-5xl lg:text-6xl font-bold tracking-tighter text-slate-900 dark:text-slate-100">
-                Nâng cao kỹ năng tiếng Anh với{" "}
-                <span className="bg-gradient-to-r from-pink-600 via-rose-600 to-fuchsia-600 bg-clip-text text-transparent inline-block">
-                  DALTK
-                </span>
+              <h1 className="text-4xl md:text-5xl lg:text-6xl font-display font-semibold text-slate-900 dark:text-slate-50">
+                DALTK giúp bạn học tiếng Anh theo cách{' '}
+                <span className="text-rose-600 dark:text-rose-300">tập trung</span> và{' '}
+                <span className="text-sky-600 dark:text-sky-300">thực chiến</span>
               </h1>
-              <p className="mx-auto max-w-[700px] text-slate-600 dark:text-slate-300 md:text-xl mt-4">
-                Công cụ học tiếng Anh thông minh giúp bạn tra từ, tạo bài tập và luyện tập với AI chỉ trong một nền tảng.
+              <p className="max-w-[620px] text-lg text-slate-600 dark:text-slate-300">
+                <span className="block">Một studio học tập thông minh cho bạn.</span>
+                <span className="block">Tạo đề cá nhân hóa, luyện nghe - nói - đọc - viết.</span>
+                <span className="block">Theo dõi tiến bộ và cạnh tranh bằng bảng xếp hạng thời gian thực.</span>
               </p>
+
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={scrollToPracticeTracks}
+                  className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-900/20 transition hover:-translate-y-0.5 hover:shadow-xl dark:bg-white dark:text-slate-900"
+                >
+                  Bắt đầu luyện tập
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+                <Link
+                  to="/progress"
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white/70 px-6 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-white dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200"
+                >
+                  Xem lộ trình học
+                  <TrendingUp className="h-4 w-4" />
+                </Link>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-3">
+                {[
+                  { label: 'Bộ kỹ năng', value: '5+' },
+                  { label: 'Top học viên', value: '100+' },
+                ].map((stat) => (
+                  <div
+                    key={stat.label}
+                    className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/40"
+                  >
+                    <p className="text-sm text-slate-500 dark:text-slate-400">{stat.label}</p>
+                    <p className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{stat.value}</p>
+                  </div>
+                ))}
+              </div>
             </motion.div>
 
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.7, delay: 0.3, ease: "easeOut" }}
-              className="flex flex-wrap gap-4 justify-center"
+              transition={{ duration: 0.7, delay: 0.2, ease: 'easeOut' }}
+              className="relative"
             >
-              <button
-                onClick={scrollToFeatures}
-                className="group inline-flex h-12 items-center justify-center rounded-xl bg-gradient-to-r from-pink-500 to-rose-600 px-8 text-sm font-medium text-white shadow-lg shadow-pink-200/50 transition-all duration-300 hover:shadow-xl hover:scale-105 hover:shadow-pink-300/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-500"
-              >
-                <span className="mr-2">🚀</span>
-                Khám phá tính năng
-                <ChevronDown className="ml-2 h-4 w-4 transition-transform duration-300 group-hover:translate-y-1" />
-              </button>
+              <div className="rounded-3xl border border-white/70 bg-white/70 p-6 shadow-xl shadow-rose-200/40 backdrop-blur dark:border-slate-800 dark:bg-slate-900/50">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-2xl bg-gradient-to-br from-rose-500 to-orange-400 p-3 text-white shadow-lg shadow-rose-400/40">
+                    <Globe className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <p className="text-sm uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Daily Focus</p>
+                    <p className="text-xl font-semibold text-slate-900 dark:text-slate-50">Lộ trình học cá nhân hóa</p>
+                  </div>
+                </div>
+                <div className="mt-6 space-y-4">
+                  <div className="rounded-2xl border border-slate-200/70 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Luyện nghe B1</p>
+                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-200">
+                        Hôm nay
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                      3 đoạn hội thoại, 15 câu hỏi kèm giải thích.
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200/70 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Shadowing speaking</p>
+                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-600 dark:bg-blue-500/20 dark:text-blue-200">
+                        15 phút
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                      Phân tích phát âm & nhịp nói theo đoạn mẫu.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-center">
+                <Link
+                  to="/leaderboard"
+                  className="group w-full max-w-sm rounded-2xl border border-white/70 bg-white/80 p-4 text-center shadow-sm transition hover:-translate-y-1 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900/50"
+                >
+                  <div className="flex items-center justify-center gap-3 text-slate-900 dark:text-slate-100">
+                    <Trophy className="h-5 w-5 text-yellow-500" />
+                    <span className="font-semibold">Bảng xếp hạng</span>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Đua top, giữ streak mỗi tuần.</p>
+                </Link>
+              </div>
             </motion.div>
+          </div>
+
+          <div className="mt-10 lg:hidden">
+            <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/50">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Top học viên tuần này</p>
+                <Link to="/leaderboard" className="text-xs font-semibold text-rose-600">
+                  Xem bảng xếp hạng
+                </Link>
+              </div>
+              <div className="mt-4 space-y-3">{leaderboardContent}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="absolute right-10 top-10 hidden xl:block">
+          <div className="w-64 rounded-2xl border border-white/70 bg-white/90 p-4 shadow-xl shadow-rose-200/40 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Top học viên tuần này</p>
+              <Star className="h-4 w-4 text-yellow-500" />
+            </div>
+            <div className="mt-3 space-y-3">
+              {leaderboardQuery.isLoading && <p className="text-xs text-slate-500">Đang tải dữ liệu...</p>}
+              {!leaderboardQuery.isLoading && topLearners.length === 0 && (
+                <p className="text-xs text-slate-500">Chưa có dữ liệu xếp hạng.</p>
+              )}
+              {topLearners.map((entry) => (
+                <div key={entry.userId} className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">#{entry.rank}</span>
+                  <span className="flex-1 truncate px-2 text-slate-600 dark:text-slate-300">
+                    {entry.fullName || entry.username}
+                  </span>
+                  <span className="text-slate-500">{entry.weeklyXp ?? entry.totalXp} XP</span>
+                </div>
+              ))}
+            </div>
+            <Link to="/leaderboard" className="mt-4 inline-flex items-center text-xs font-semibold text-rose-600">
+              Xem chi tiết
+              <ChevronRight className="ml-1 h-3 w-3" />
+            </Link>
           </div>
         </div>
       </section>
 
-      {/* Wave Separator */}
-      <div className="relative h-16 md:h-24 overflow-hidden">
-        <svg
-          className="absolute bottom-0 w-full h-full text-rose-100 dark:text-rose-900"
-          viewBox="0 0 1440 320"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          preserveAspectRatio="none"
-        >
-          <path
-            fillRule="evenodd"
-            clipRule="evenodd"
-            d="M0 320H1440V0C1344 80 1104 160 720 160C336 160 96 80 0 0V320Z"
-            fill="currentColor"
-          />
-        </svg>
-      </div>
-
-      {/* Features Section */}
-      <section id="features" className="py-12 md:py-20 bg-gradient-to-b from-rose-100 via-pink-50 to-white dark:from-rose-900 dark:via-pink-800 dark:to-slate-900">
+      <section className="py-12 md:py-16 bg-white dark:bg-slate-950 font-body">
         <div className="container px-4 md:px-6">
-          <div className="flex flex-col items-center justify-center space-y-4 text-center mb-12">
-            <div className="space-y-2">
-              <div className="inline-block rounded-full bg-gradient-to-r from-pink-100 to-rose-100 dark:from-pink-900 dark:to-rose-900 px-4 py-2 text-sm font-medium text-pink-700 dark:text-pink-300 shadow-lg">
-                ✨ Tính năng chính
+          <div className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
+            <div className="space-y-4">
+              <div className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white">
+                Feature mix
               </div>
-              <h2 className="text-3xl font-bold tracking-tighter md:text-4xl/tight bg-gradient-to-r from-slate-900 to-pink-700 dark:from-slate-100 dark:to-pink-300 bg-clip-text text-transparent">
-                Mọi công cụ bạn cần để thành thạo tiếng Anh
+              <h2 className="text-3xl md:text-4xl font-display text-slate-900 dark:text-slate-50">
+                Mọi công cụ bạn cần, gom gọn trong một
               </h2>
-              <p className="mx-auto max-w-[700px] text-slate-600 dark:text-slate-300 md:text-lg">
-                DALTK kết hợp các tính năng thiết yếu giúp việc học tiếng Anh trở nên hiệu quả và thú vị hơn.
+              <p className="text-slate-600 dark:text-slate-300">
+                <span className="block">Luyện tập mỗi ngày, theo dõi tiến độ rõ ràng.</span>
+                <span className="block">DALTK giúp bạn đi nhanh mà vẫn đúng hướng.</span>
               </p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              {quickActions.map((item) => (
+                <Link
+                  key={item.title}
+                  to={item.path}
+                  className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900/70"
+                >
+                  <div className={`absolute inset-0 bg-gradient-to-br ${item.accent}`} />
+                  <div className="relative space-y-3">
+                    <item.icon className={`h-6 w-6 ${item.tone}`} />
+                    <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{item.title}</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-300">{item.description}</p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="practice-tracks"
+        className="py-12 md:py-16 bg-gradient-to-b from-slate-50 via-white to-rose-50 dark:from-slate-950 dark:via-slate-950 dark:to-rose-950 font-body"
+      >
+        <div className="container px-4 md:px-6">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-[0.35em] text-rose-500">Skill tracks</p>
+              <h2 className="text-3xl md:text-4xl font-display text-slate-900 dark:text-slate-50">
+                Các phần luyện tập chuyên sâu
+              </h2>
+              <p className="mt-2 text-slate-600 dark:text-slate-300">Chọn một track và bắt đầu ngay trong hôm nay.</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
-            {features.map((feature, index) => {
-              if (feature.subItems) {
-                return (
-                  <FeatureCardWithSubmenu
-                    key={feature.title}
-                    title={feature.title}
-                    description={feature.description}
-                    icon={feature.icon}
-                    color={feature.color}
-                    bgColor={feature.bgColor}
-                    subItems={feature.subItems}
-                    delay={index}
-                  />
-                );
-              }
-              return (
-                <FeatureCard
-                  key={feature.title}
-                  title={feature.title}
-                  description={feature.description}
-                  icon={feature.icon}
-                  path={feature.path!}
-                  color={feature.color}
-                  bgColor={feature.bgColor}
-                  delay={index}
-                />
-              );
-            })}
+          <div className="mt-8 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {practiceTracks.map((track) => (
+              <Link
+                key={track.title}
+                to={track.path}
+                className="group rounded-2xl border border-slate-200 bg-white/80 p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900/70"
+              >
+                <div className="flex items-center justify-between">
+                  <track.icon className="h-6 w-6 text-slate-900 dark:text-slate-100" />
+                  <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-600 dark:bg-rose-500/20 dark:text-rose-200">
+                    {track.tag}
+                  </span>
+                </div>
+                <h3 className="mt-4 text-lg font-semibold text-slate-900 dark:text-slate-100">{track.title}</h3>
+                <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{track.description}</p>
+              </Link>
+            ))}
           </div>
         </div>
       </section>

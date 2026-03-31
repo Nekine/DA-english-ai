@@ -85,6 +85,8 @@ export default {
 			fontFamily: {
 				sans: ['Inter', 'sans-serif'],
 				heading: ['SF Pro Display', 'Inter', 'sans-serif'],
+				display: ['"Fraunces"', 'serif'],
+				body: ['"Space Grotesk"', 'sans-serif'],
 			},
 			keyframes: {
 				'accordion-down': {
