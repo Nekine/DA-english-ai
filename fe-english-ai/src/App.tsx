@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { ThemeProvider } from "./components/ThemeProvider";
-import Index from "./pages/Index";
+import Index from "./pages/Index.tsx";
 import Dictionary from "./pages/Dictionary";
 import DictionaryResult from "./pages/DictionaryResult";
 import Exercises from "./pages/Exercises";
@@ -90,6 +90,7 @@ const App = () => (
                 
                 {/* TOEIC Test routes */}
                 <Route path="/test-list" element={<TestList />} />
+                <Route path="/test-config" element={<TestConfiguration />} />
                 <Route path="/test-config/:testId" element={<TestConfiguration />} />
                 <Route path="/test-exam/:testId" element={<TestExam />} />
                 

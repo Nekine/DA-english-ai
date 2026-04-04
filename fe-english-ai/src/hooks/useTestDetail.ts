@@ -1,34 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
-
-export interface TestQuestion {
-  questionId: number;
-  questionNumber: number;
-  questionText: string | null;
-  questionType: string;
-  audioUrl: string | null;
-  imageUrl: string | null;
-  correctAnswerLabel: string;
-  answerExplanation: string;
-  options: string[];
-}
-
-export interface TestDetail {
-  testId: string;
-  title: string;
-  questions: TestQuestion[];
-}
+import { testExamService, type TestExamDetail } from "@/services/testExamService";
 
 export const useTestDetail = (testId: string | null) => {
   return useQuery({
-    queryKey: ["test-detail", testId],
-    queryFn: async () => {
+    queryKey: ["test-exam-detail", testId],
+    queryFn: async (): Promise<TestExamDetail> => {
       if (!testId) throw new Error("Test ID is required");
-      const response = await fetch(`https://luyende.onrender.com/api/Home/${testId}`);
-      if (!response.ok) {
-        throw new Error("Failed to fetch test detail");
-      }
-      return response.json() as Promise<TestDetail>;
+      return testExamService.getDetail(testId);
     },
     enabled: !!testId,
+    refetchInterval: (query) => {
+      const detail = query.state.data as TestExamDetail | undefined;
+      return detail?.status === "generating" ? 2500 : false;
+    },
   });
 };
