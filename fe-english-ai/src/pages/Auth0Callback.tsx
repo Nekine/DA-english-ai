@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 import { authService } from '@/services/authService';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/components/AuthContext';
 
 /**
  * Auth0 Callback Page
@@ -15,6 +16,7 @@ const Auth0Callback: React.FC = () => {
   const navigate = useNavigate();
   const { user, isAuthenticated, isLoading, error } = useAuth0();
   const { toast } = useToast();
+  const { login } = useAuth();
   const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
@@ -47,6 +49,10 @@ const Auth0Callback: React.FC = () => {
           });
 
           if (response.success) {
+            if (response.user) {
+              login(response.user);
+            }
+
             toast({
               title: 'Đăng nhập thành công!',
               description: `Chào mừng ${response.user?.fullName || response.user?.email}!`,

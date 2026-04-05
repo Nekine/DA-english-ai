@@ -47,19 +47,22 @@ export class UsersRepository extends BaseRepository {
     const whereParts: string[] = [];
 
     if (filters.accountType) {
-      whereParts.push("u.account_type = @accountType");
-      this.bindInput(request, "accountType", sql.NVarChar(20), filters.accountType);
+      if (filters.accountType === "free") {
+        whereParts.push("tk.LoaiTaiKhoan = N'basic'");
+      } else {
+        whereParts.push("tk.LoaiTaiKhoan IN (N'premium', N'max')");
+      }
     }
 
     if (filters.search) {
       whereParts.push(
-        "(u.full_name LIKE @search OR u.username LIKE @search OR CAST(u.id AS NVARCHAR(20)) LIKE @search)",
+        "(nd.HoVaTen LIKE @search OR tk.TenDangNhap LIKE @search OR CAST(tk.TaiKhoanId AS NVARCHAR(20)) LIKE @search)",
       );
       this.bindInput(request, "search", sql.NVarChar(255), `%${filters.search}%`);
     }
 
     if (filters.status) {
-      whereParts.push("u.status = @status");
+      whereParts.push("tk.TrangThaiTaiKhoan = @status");
       this.bindInput(request, "status", sql.NVarChar(20), filters.status);
     }
 
@@ -67,7 +70,8 @@ export class UsersRepository extends BaseRepository {
 
     const countResult = await request.query<{ totalCount: number }>(`
       SELECT COUNT(1) AS totalCount
-      FROM dbo.users u
+      FROM dbo.TaiKhoan tk
+      LEFT JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
       ${whereClause}
     `);
 
@@ -75,9 +79,6 @@ export class UsersRepository extends BaseRepository {
     const offset = (filters.page - 1) * filters.pageSize;
 
     const dataRequest = await this.createRequest();
-    if (filters.accountType) {
-      this.bindInput(dataRequest, "accountType", sql.NVarChar(20), filters.accountType);
-    }
     if (filters.search) {
       this.bindInput(dataRequest, "search", sql.NVarChar(255), `%${filters.search}%`);
     }
@@ -89,19 +90,21 @@ export class UsersRepository extends BaseRepository {
 
     const dataResult = await dataRequest.query<UserListRow>(`
       SELECT
-        u.id AS UserID,
-        u.username AS Username,
-        u.email AS Email,
-        u.phone AS Phone,
-        u.account_type AS AccountType,
-        u.status AS Status,
-        u.full_name AS FullName,
-        u.avatar_url AS Avatar,
-        u.total_xp AS TotalXP,
-        u.premium_expires_at AS PremiumExpiresAt
-      FROM dbo.users u
+        tk.TaiKhoanId AS UserID,
+        tk.TenDangNhap AS Username,
+        COALESCE(tk.Email, N'') AS Email,
+        nd.SoDienThoai AS Phone,
+        CASE WHEN tk.LoaiTaiKhoan = N'basic' THEN N'free' ELSE N'premium' END AS AccountType,
+        tk.TrangThaiTaiKhoan AS Status,
+        nd.HoVaTen AS FullName,
+        nd.AnhDaiDienUrl AS Avatar,
+        ISNULL(td.TongXP, 0) AS TotalXP,
+        CAST(NULL AS DATETIME2) AS PremiumExpiresAt
+      FROM dbo.TaiKhoan tk
+      LEFT JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
+      LEFT JOIN dbo.TienDoHocTap td ON td.NguoiDungId = nd.NguoiDungId
       ${whereClause}
-      ORDER BY u.id DESC
+      ORDER BY tk.TaiKhoanId DESC
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
     `);
 
@@ -114,24 +117,26 @@ export class UsersRepository extends BaseRepository {
 
     const result = await request.query<UserDetailRow>(`
       SELECT TOP (1)
-        id AS UserID,
-        username AS Username,
-        email AS Email,
-        phone AS Phone,
-        account_type AS AccountType,
-        status AS Status,
-        full_name AS FullName,
-        bio AS Bio,
-        address AS Address,
-        avatar_url AS Avatar,
-        total_study_time AS TotalStudyTime,
-        total_xp AS TotalXP,
-        premium_expires_at AS PremiumExpiresAt,
-        last_active_at AS LastActiveAt,
-        created_at AS CreatedAt,
-        updated_at AS UpdatedAt
-      FROM dbo.users
-      WHERE id = @userId
+        tk.TaiKhoanId AS UserID,
+        tk.TenDangNhap AS Username,
+        COALESCE(tk.Email, N'') AS Email,
+        nd.SoDienThoai AS Phone,
+        CASE WHEN tk.LoaiTaiKhoan = N'basic' THEN N'free' ELSE N'premium' END AS AccountType,
+        tk.TrangThaiTaiKhoan AS Status,
+        nd.HoVaTen AS FullName,
+        nd.TieuSu AS Bio,
+        nd.DiaChi AS Address,
+        nd.AnhDaiDienUrl AS Avatar,
+        ISNULL(td.TongPhutHoc, 0) AS TotalStudyTime,
+        ISNULL(td.TongXP, 0) AS TotalXP,
+        CAST(NULL AS DATETIME2) AS PremiumExpiresAt,
+        tk.LanDangNhapCuoi AS LastActiveAt,
+        tk.NgayTao AS CreatedAt,
+        tk.NgayCapNhat AS UpdatedAt
+      FROM dbo.TaiKhoan tk
+      LEFT JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
+      LEFT JOIN dbo.TienDoHocTap td ON td.NguoiDungId = nd.NguoiDungId
+      WHERE tk.TaiKhoanId = @userId
     `);
 
     return result.recordset[0] ?? null;

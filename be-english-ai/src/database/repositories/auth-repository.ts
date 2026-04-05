@@ -11,6 +11,7 @@ export interface DbAuthUser {
   passwordHash: string;
   fullName: string | null;
   avatarUrl: string | null;
+  currentLevel: "A1" | "A2" | "B1" | "B2" | "C1" | "C2" | null;
   role: "user" | "admin" | "customer";
   status: "active" | "inactive" | "banned";
   accountType: "free" | "premium";
@@ -22,6 +23,7 @@ export interface RegisterUserInput {
   email: string;
   passwordHash: string;
   fullName: string | null;
+  currentLevel: "A1" | "A2" | "B1" | "B2" | "C1" | "C2" | null;
   role?: "user" | "admin" | "customer";
 }
 
@@ -34,25 +36,34 @@ export interface CreateOAuthUserInput {
   providerId: string;
 }
 
+const AUTH_USER_SELECT = `
+  SELECT TOP (1)
+    tk.TaiKhoanId AS id,
+    tk.TenDangNhap AS username,
+    COALESCE(tk.Email, N'') AS email,
+    tk.MatKhauHash AS passwordHash,
+    nd.HoVaTen AS fullName,
+    nd.AnhDaiDienUrl AS avatarUrl,
+    nd.TrinhDoHienTai AS currentLevel,
+    N'customer' AS role,
+    tk.TrangThaiTaiKhoan AS status,
+    CASE
+      WHEN tk.LoaiTaiKhoan = N'basic' THEN N'free'
+      ELSE N'premium'
+    END AS accountType,
+    CAST(NULL AS DATETIME2) AS premiumExpiresAt
+`;
+
 export class AuthRepository extends BaseRepository {
   async findByEmailOrUsername(identity: string): Promise<DbAuthUser | null> {
     const request = await this.createRequest();
     this.bindInput(request, "identity", sql.NVarChar(255), identity);
 
     const result = await request.query<DbAuthUser>(`
-      SELECT TOP (1)
-        id,
-        username,
-        email,
-        password_hash AS passwordHash,
-        full_name AS fullName,
-        avatar_url AS avatarUrl,
-        role,
-        status,
-        account_type AS accountType,
-        premium_expires_at AS premiumExpiresAt
-      FROM dbo.users
-      WHERE email = @identity OR username = @identity
+      ${AUTH_USER_SELECT}
+      FROM dbo.TaiKhoan tk
+      LEFT JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
+      WHERE tk.Email = @identity OR tk.TenDangNhap = @identity
     `);
 
     return result.recordset[0] ?? null;
@@ -63,19 +74,10 @@ export class AuthRepository extends BaseRepository {
     this.bindInput(request, "userId", sql.Int, userId);
 
     const result = await request.query<DbAuthUser>(`
-      SELECT TOP (1)
-        id,
-        username,
-        email,
-        password_hash AS passwordHash,
-        full_name AS fullName,
-        avatar_url AS avatarUrl,
-        role,
-        status,
-        account_type AS accountType,
-        premium_expires_at AS premiumExpiresAt
-      FROM dbo.users
-      WHERE id = @userId
+      ${AUTH_USER_SELECT}
+      FROM dbo.TaiKhoan tk
+      LEFT JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
+      WHERE tk.TaiKhoanId = @userId
     `);
 
     return result.recordset[0] ?? null;
@@ -86,19 +88,10 @@ export class AuthRepository extends BaseRepository {
     this.bindInput(request, "email", sql.NVarChar(255), email);
 
     const result = await request.query<DbAuthUser>(`
-      SELECT TOP (1)
-        id,
-        username,
-        email,
-        password_hash AS passwordHash,
-        full_name AS fullName,
-        avatar_url AS avatarUrl,
-        role,
-        status,
-        account_type AS accountType,
-        premium_expires_at AS premiumExpiresAt
-      FROM dbo.users
-      WHERE email = @email
+      ${AUTH_USER_SELECT}
+      FROM dbo.TaiKhoan tk
+      LEFT JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
+      WHERE tk.Email = @email
     `);
 
     return result.recordset[0] ?? null;
@@ -109,19 +102,10 @@ export class AuthRepository extends BaseRepository {
     this.bindInput(request, "providerId", sql.NVarChar(255), providerId);
 
     const result = await request.query<DbAuthUser>(`
-      SELECT TOP (1)
-        id,
-        username,
-        email,
-        password_hash AS passwordHash,
-        full_name AS fullName,
-        avatar_url AS avatarUrl,
-        role,
-        status,
-        account_type AS accountType,
-        premium_expires_at AS premiumExpiresAt
-      FROM dbo.users
-      WHERE google_id = @providerId
+      ${AUTH_USER_SELECT}
+      FROM dbo.TaiKhoan tk
+      LEFT JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
+      WHERE tk.MaGoogle = @providerId
     `);
 
     return result.recordset[0] ?? null;
@@ -132,19 +116,10 @@ export class AuthRepository extends BaseRepository {
     this.bindInput(request, "providerId", sql.NVarChar(255), providerId);
 
     const result = await request.query<DbAuthUser>(`
-      SELECT TOP (1)
-        id,
-        username,
-        email,
-        password_hash AS passwordHash,
-        full_name AS fullName,
-        avatar_url AS avatarUrl,
-        role,
-        status,
-        account_type AS accountType,
-        premium_expires_at AS premiumExpiresAt
-      FROM dbo.users
-      WHERE facebook_id = @providerId
+      ${AUTH_USER_SELECT}
+      FROM dbo.TaiKhoan tk
+      LEFT JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
+      WHERE tk.MaFacebook = @providerId
     `);
 
     return result.recordset[0] ?? null;
@@ -157,8 +132,8 @@ export class AuthRepository extends BaseRepository {
 
     const result = await request.query<{ count: number }>(`
       SELECT COUNT(1) AS count
-      FROM dbo.users
-      WHERE email = @email OR username = @username
+      FROM dbo.TaiKhoan
+      WHERE Email = @email OR TenDangNhap = @username
     `);
 
     return (result.recordset[0]?.count ?? 0) > 0;
@@ -170,8 +145,8 @@ export class AuthRepository extends BaseRepository {
 
     const result = await request.query<{ count: number }>(`
       SELECT COUNT(1) AS count
-      FROM dbo.users
-      WHERE username = @username
+      FROM dbo.TaiKhoan
+      WHERE TenDangNhap = @username
     `);
 
     return (result.recordset[0]?.count ?? 0) > 0;
@@ -182,13 +157,48 @@ export class AuthRepository extends BaseRepository {
     this.bindInput(request, "username", sql.NVarChar(100), input.username);
     this.bindInput(request, "email", sql.NVarChar(255), input.email);
     this.bindInput(request, "passwordHash", sql.NVarChar(255), input.passwordHash);
-    this.bindInput(request, "fullName", sql.NVarChar(200), input.fullName);
-    this.bindInput(request, "role", sql.NVarChar(20), input.role ?? "customer");
+    this.bindInput(request, "fullName", sql.NVarChar(100), input.fullName);
+    this.bindInput(request, "currentLevel", sql.NVarChar(40), input.currentLevel);
 
     const result = await request.query<{ id: number }>(`
-      INSERT INTO dbo.users (username, email, password_hash, full_name, role)
-      OUTPUT INSERTED.id
-      VALUES (@username, @email, @passwordHash, @fullName, @role)
+      DECLARE @newAccount TABLE (TaiKhoanId INT);
+
+      INSERT INTO dbo.TaiKhoan (
+        TenDangNhap,
+        Email,
+        MatKhauHash,
+        LoaiTaiKhoan,
+        PhuongThucDangNhap,
+        TrangThaiTaiKhoan,
+        NgayCapNhat
+      )
+      OUTPUT INSERTED.TaiKhoanId INTO @newAccount(TaiKhoanId)
+      VALUES (
+        @username,
+        @email,
+        @passwordHash,
+        N'basic',
+        N'local',
+        N'active',
+        SYSDATETIME()
+      );
+
+      INSERT INTO dbo.NguoiDung (
+        TaiKhoanId,
+        HoVaTen,
+        TrinhDoHienTai,
+        NgayCapNhatTrinhDo,
+        NgayCapNhat
+      )
+      SELECT
+        TaiKhoanId,
+        @fullName,
+        @currentLevel,
+        CASE WHEN @currentLevel IS NULL THEN NULL ELSE SYSDATETIME() END,
+        SYSDATETIME()
+      FROM @newAccount;
+
+      SELECT TOP (1) TaiKhoanId AS id FROM @newAccount;
     `);
 
     const insertedId = result.recordset[0]?.id;
@@ -207,9 +217,9 @@ export class AuthRepository extends BaseRepository {
     const request = await this.createRequest();
     this.bindInput(request, "username", sql.NVarChar(100), input.username);
     this.bindInput(request, "email", sql.NVarChar(255), input.email);
-    this.bindInput(request, "passwordHash", sql.NVarChar(255), "");
-    this.bindInput(request, "fullName", sql.NVarChar(200), input.fullName);
-    this.bindInput(request, "avatarUrl", sql.NVarChar(500), input.avatarUrl);
+    this.bindInput(request, "passwordHash", sql.NVarChar(255), input.providerId);
+    this.bindInput(request, "fullName", sql.NVarChar(100), input.fullName);
+    this.bindInput(request, "avatarUrl", sql.NVarChar(255), input.avatarUrl);
     this.bindInput(
       request,
       "googleId",
@@ -224,33 +234,39 @@ export class AuthRepository extends BaseRepository {
     );
 
     const result = await request.query<{ id: number }>(`
-      INSERT INTO dbo.users (
-        username,
-        email,
-        password_hash,
-        full_name,
-        avatar_url,
-        role,
-        status,
-        account_type,
-        google_id,
-        facebook_id,
-        last_active_at
+      DECLARE @newAccount TABLE (TaiKhoanId INT);
+
+      INSERT INTO dbo.TaiKhoan (
+        TenDangNhap,
+        Email,
+        MatKhauHash,
+        LoaiTaiKhoan,
+        PhuongThucDangNhap,
+        MaGoogle,
+        MaFacebook,
+        TrangThaiTaiKhoan,
+        LanDangNhapCuoi,
+        NgayCapNhat
       )
-      OUTPUT INSERTED.id
+      OUTPUT INSERTED.TaiKhoanId INTO @newAccount(TaiKhoanId)
       VALUES (
         @username,
         @email,
         @passwordHash,
-        @fullName,
-        @avatarUrl,
-        N'user',
-        N'active',
-        N'free',
+        N'basic',
+        ${input.provider === "google" ? "N'google'" : "N'facebook'"},
         @googleId,
         @facebookId,
-        SYSUTCDATETIME()
-      )
+        N'active',
+        SYSDATETIME(),
+        SYSDATETIME()
+      );
+
+      INSERT INTO dbo.NguoiDung (TaiKhoanId, HoVaTen, AnhDaiDienUrl, NgayCapNhat)
+      SELECT TaiKhoanId, @fullName, @avatarUrl, SYSDATETIME()
+      FROM @newAccount;
+
+      SELECT TOP (1) TaiKhoanId AS id FROM @newAccount;
     `);
 
     const insertedId = result.recordset[0]?.id;
@@ -270,10 +286,10 @@ export class AuthRepository extends BaseRepository {
     this.bindInput(request, "userId", sql.Int, userId);
 
     await request.query(`
-      UPDATE dbo.users
-      SET last_active_at = SYSUTCDATETIME(),
-          updated_at = SYSUTCDATETIME()
-      WHERE id = @userId
+      UPDATE dbo.TaiKhoan
+      SET LanDangNhapCuoi = SYSDATETIME(),
+          NgayCapNhat = SYSDATETIME()
+      WHERE TaiKhoanId = @userId
     `);
   }
 
@@ -298,18 +314,45 @@ export class AuthRepository extends BaseRepository {
       sql.NVarChar(255),
       input.provider === "facebook" ? input.providerId : null,
     );
-    this.bindInput(request, "fullName", sql.NVarChar(200), input.fullName);
-    this.bindInput(request, "avatarUrl", sql.NVarChar(500), input.avatarUrl);
+    this.bindInput(request, "fullName", sql.NVarChar(100), input.fullName);
+    this.bindInput(request, "avatarUrl", sql.NVarChar(255), input.avatarUrl);
 
     await request.query(`
-      UPDATE dbo.users
-      SET google_id = COALESCE(@googleId, google_id),
-          facebook_id = COALESCE(@facebookId, facebook_id),
-          full_name = COALESCE(full_name, @fullName),
-          avatar_url = COALESCE(avatar_url, @avatarUrl),
-          last_active_at = SYSUTCDATETIME(),
-          updated_at = SYSUTCDATETIME()
-      WHERE id = @userId
+      UPDATE dbo.TaiKhoan
+      SET MaGoogle = COALESCE(@googleId, MaGoogle),
+          MaFacebook = COALESCE(@facebookId, MaFacebook),
+          LanDangNhapCuoi = SYSDATETIME(),
+          NgayCapNhat = SYSDATETIME()
+      WHERE TaiKhoanId = @userId;
+
+      UPDATE dbo.NguoiDung
+      SET HoVaTen = COALESCE(HoVaTen, @fullName),
+          AnhDaiDienUrl = COALESCE(AnhDaiDienUrl, @avatarUrl),
+          NgayCapNhat = SYSDATETIME()
+      WHERE TaiKhoanId = @userId;
+    `);
+  }
+
+  async updateAvatarUrl(userId: number, avatarUrl: string): Promise<void> {
+    const request = await this.createRequest();
+    this.bindInput(request, "userId", sql.Int, userId);
+    this.bindInput(request, "avatarUrl", sql.NVarChar(255), avatarUrl);
+
+    await request.query(`
+      UPDATE dbo.NguoiDung
+      SET AnhDaiDienUrl = @avatarUrl,
+          NgayCapNhat = SYSDATETIME()
+      WHERE TaiKhoanId = @userId;
+
+      IF @@ROWCOUNT = 0
+      BEGIN
+        INSERT INTO dbo.NguoiDung (TaiKhoanId, AnhDaiDienUrl, NgayCapNhat)
+        VALUES (@userId, @avatarUrl, SYSDATETIME());
+      END
+
+      UPDATE dbo.TaiKhoan
+      SET NgayCapNhat = SYSDATETIME()
+      WHERE TaiKhoanId = @userId;
     `);
   }
 }

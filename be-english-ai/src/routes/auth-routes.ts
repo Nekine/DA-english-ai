@@ -5,8 +5,10 @@ import {
   loginHandler,
   oauthLoginHandler,
   registerHandler,
+  uploadAvatarHandler,
 } from "../controllers/auth/auth-controller";
 import { requireAuth } from "../middlewares/require-auth";
+import { upload } from "../middlewares/upload";
 import { validateBody } from "../middlewares/validate-body";
 import {
   loginRequestSchema,
@@ -36,4 +38,5 @@ authRoutes.post(
   asyncHandler(oauthLoginHandler),
 );
 authRoutes.get("/me", requireAuth, asyncHandler(currentUserHandler));
+authRoutes.post("/avatar", requireAuth, upload.single("avatar"), asyncHandler(uploadAvatarHandler));
 authRoutes.get("/health", healthHandler);

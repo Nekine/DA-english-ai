@@ -55,8 +55,6 @@ const TestExam = () => {
   const currentQuestionAnswered = Boolean(
     currentQuestion && userAnswers[currentQuestion.questionId],
   );
-  const isAtLastQuestion =
-    totalQuestionsInPart > 0 && currentQuestionIndex === totalQuestionsInPart - 1;
   const isPartCompleted = Boolean(
     selectedPart &&
       selectedPart.status === "ready" &&
@@ -66,8 +64,6 @@ const TestExam = () => {
   const canSubmitCurrentPart = Boolean(
     selectedPart &&
       selectedPart.status === "ready" &&
-      isAtLastQuestion &&
-      currentQuestionAnswered &&
       isPartCompleted,
   );
   const totalSelectedParts = testDetail?.generation.totalParts ?? sortedParts.length;

@@ -1,11 +1,14 @@
 import { apiService as api } from './api';
 
 // Types
+export type CefrLevel = 'unknown' | 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
+
 export interface RegisterRequest {
   email: string;
   password: string;
   username: string;
   fullName: string;
+  currentLevel: CefrLevel;
 }
 
 export interface LoginRequest {
@@ -28,6 +31,7 @@ export interface UserDto {
   username?: string;
   fullName?: string;
   avatar?: string;
+  currentLevel?: 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2' | null;
   role: string;
   status: string;
   emailVerified: boolean;
@@ -38,6 +42,7 @@ export interface AuthResponse {
   message?: string;
   token?: string;
   user?: UserDto;
+  avatarUrl?: string;
 }
 
 // Auth Service
@@ -161,6 +166,38 @@ class AuthService {
       console.error('Error refreshing user:', error);
       return null;
     }
+  }
+
+  /**
+   * Upload current user's avatar image
+   */
+  async uploadAvatar(file: File): Promise<AuthResponse> {
+    const token = this.getToken();
+    if (!token) {
+      throw new Error('Bạn chưa đăng nhập');
+    }
+
+    const formData = new FormData();
+    formData.append('avatar', file);
+
+    const response = await fetch('/api/auth/avatar', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    const data = (await response.json().catch(() => ({}))) as AuthResponse;
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || `Server responded with status: ${response.status}`);
+    }
+
+    if (data.user) {
+      localStorage.setItem(this.USER_KEY, JSON.stringify(data.user));
+    }
+
+    return data;
   }
 }
 

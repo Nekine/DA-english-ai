@@ -1,4 +1,6 @@
 import type { Request, Response } from "express";
+import path from "node:path";
+import { promises as fs } from "node:fs";
 import { HTTP_STATUS } from "../../constants/http-status";
 import { AppError } from "../../errors/app-error";
 import { ERROR_CODES } from "../../errors/error-codes";
@@ -7,9 +9,37 @@ import {
   login,
   oauthLogin,
   register,
+  updateCurrentUserAvatar,
   type OAuthLoginRequest,
   type RegisterRequest,
 } from "../../services/auth/auth-service";
+
+const ALLOWED_MIME_TO_EXT: Record<string, string> = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+};
+
+async function saveAvatarFile(userId: number, file: Express.Multer.File): Promise<string> {
+  const ext = ALLOWED_MIME_TO_EXT[file.mimetype];
+  if (!ext) {
+    throw new AppError(
+      "Invalid image format. Allowed: JPG, PNG, WEBP, GIF",
+      HTTP_STATUS.BAD_REQUEST,
+      ERROR_CODES.VALIDATION_ERROR,
+    );
+  }
+
+  const imagesDir = path.resolve(process.cwd(), "images");
+  await fs.mkdir(imagesDir, { recursive: true });
+
+  const fileName = `avatar-${userId}-${Date.now()}${ext}`;
+  const filePath = path.join(imagesDir, fileName);
+  await fs.writeFile(filePath, file.buffer);
+
+  return `/images/${fileName}`;
+}
 
 export async function registerHandler(req: Request, res: Response): Promise<void> {
   const body = req.body as RegisterRequest;
@@ -53,6 +83,31 @@ export async function currentUserHandler(req: Request, res: Response): Promise<v
   }
 
   res.status(HTTP_STATUS.OK).json({ success: true, user });
+}
+
+export async function uploadAvatarHandler(req: Request, res: Response): Promise<void> {
+  const userId = Number(req.auth?.sub ?? 0);
+  if (!Number.isInteger(userId) || userId <= 0) {
+    throw new AppError("Invalid or missing token", HTTP_STATUS.UNAUTHORIZED, ERROR_CODES.AUTH_REQUIRED);
+  }
+
+  if (!req.file || !req.file.buffer) {
+    throw new AppError("No avatar file uploaded", HTTP_STATUS.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR);
+  }
+
+  const avatarUrl = await saveAvatarFile(userId, req.file);
+  const user = await updateCurrentUserAvatar(userId, avatarUrl);
+
+  if (!user) {
+    throw new AppError("User not found", HTTP_STATUS.NOT_FOUND, ERROR_CODES.RESOURCE_NOT_FOUND);
+  }
+
+  res.status(HTTP_STATUS.OK).json({
+    success: true,
+    message: "Avatar updated successfully",
+    avatarUrl,
+    user,
+  });
 }
 
 export function healthHandler(_req: Request, res: Response): void {

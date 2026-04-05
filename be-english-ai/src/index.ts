@@ -1,6 +1,7 @@
 import { createApp } from "./app";
 import { appConfig } from "./config";
 import { loadApiKeysFromFiles } from "./config/api-key-loader";
+import { getDbPool } from "./database";
 import { logger } from "./utils/logger";
 
 process.on("unhandledRejection", (reason) => {
@@ -16,8 +17,46 @@ process.on("uncaughtException", (error) => {
   });
 });
 
-function startServerWithRetry(): void {
+async function logDatabaseConnectionStatus(): Promise<void> {
+	if (!appConfig.db.enabled) {
+		logger.warn("Database connection check skipped", {
+			dbEnabled: false,
+			reason: "DB_ENABLED is false",
+		});
+		return;
+	}
+
+	try {
+		const pool = await getDbPool();
+		const probe = await pool.request().query<{
+			ServerName: string;
+			DatabaseName: string;
+			LoginName: string;
+		}>(`
+			SELECT
+				@@SERVERNAME AS ServerName,
+				DB_NAME() AS DatabaseName,
+				SUSER_SNAME() AS LoginName
+		`);
+
+		const row = probe.recordset[0];
+		logger.info("Database connection check succeeded", {
+			connected: true,
+			server: row?.ServerName ?? "unknown",
+			database: row?.DatabaseName ?? "unknown",
+			loginName: row?.LoginName ?? "unknown",
+		});
+	} catch (error) {
+		logger.error("Database connection check failed", {
+			connected: false,
+			message: error instanceof Error ? error.message : String(error),
+		});
+	}
+}
+
+async function startServerWithRetry(): Promise<void> {
 	loadApiKeysFromFiles();
+	await logDatabaseConnectionStatus();
 
 	const app = createApp();
 	const basePort = appConfig.port;
@@ -55,4 +94,4 @@ function startServerWithRetry(): void {
 	tryListen(0);
 }
 
-startServerWithRetry();
+void startServerWithRetry();

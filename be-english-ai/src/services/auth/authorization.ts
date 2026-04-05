@@ -34,6 +34,7 @@ export function toAuthUserSummary(input: {
   username?: string | null;
   fullName?: string | null;
   avatar?: string | null;
+  currentLevel?: "A1" | "A2" | "B1" | "B2" | "C1" | "C2" | null;
   role: UserRole;
   status: UserStatus;
   accountType: AuthUserSummary["accountType"];
@@ -45,6 +46,7 @@ export function toAuthUserSummary(input: {
     username: input.username ?? null,
     fullName: input.fullName ?? null,
     avatar: input.avatar ?? null,
+    currentLevel: input.currentLevel ?? null,
     role: input.role,
     status: input.status,
     emailVerified: true,

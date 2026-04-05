@@ -40,6 +40,7 @@
     "minimist": "^1.2.8",
     "mkdirp": "^1.0.4",
     "mssql": "^12.2.1",
+    "msnodesqlv8": "^4.3.1",
     "multer": "^2.1.1",
     "normalize-path": "^3.0.0",
     "once": "^1.4.0",

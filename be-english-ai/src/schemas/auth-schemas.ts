@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const passwordPolicyRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+const cefrLevelSchema = z.enum(["unknown", "A1", "A2", "B1", "B2", "C1", "C2"]);
 
 export const registerRequestSchema = z.object({
   email: z.email("Invalid email format").transform((v) => v.trim()),
@@ -17,6 +18,7 @@ export const registerRequestSchema = z.object({
     .min(3, "Username must be at least 3 characters")
     .max(100, "Username cannot exceed 100 characters"),
   fullName: z.string().trim().min(1, "Full name is required").max(255),
+  currentLevel: cefrLevelSchema.default("unknown"),
 });
 
 export const loginRequestSchema = z.object({

@@ -8,6 +8,7 @@ export interface User {
     username?: string;
     fullName?: string;
     avatar?: string;
+    currentLevel?: 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2' | null;
     role: string;
     status: string;
     emailVerified: boolean;

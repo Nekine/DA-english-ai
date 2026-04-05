@@ -58,21 +58,19 @@ const App = () => (
         <BrowserRouter>
           <AnimatePresence mode="wait">
             <Routes>
-              {/* Route mặc định - trang landing public */}
-              <Route path="/" element={<Index />} />
+              {/* Public routes */}
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="/callback" element={<Auth0Callback />} />
 
-                {/* Public routes - không cần đăng nhập */}
-                <Route path="/login" element={<Login />} />
-                <Route path="/register" element={<Register />} />
-                <Route path="/callback" element={<Auth0Callback />} />
-                <Route path="/pricing" element={<Pricing />} />
-
-                {/* Protected routes - không cần đăng nhập */}
+              {/* Protected routes */}
+              <Route element={<ProtectedRoute />}>
+                <Route path="/" element={<Index />} />
                 <Route path="/index" element={<Index />} />
                 <Route path="/dictionary" element={<Dictionary />} />
                 <Route path="/dictionary-result" element={<DictionaryResult />} />
                 <Route path="/exercises" element={<Exercises />} />
-                
+
                 {/* Writing routes */}
                 <Route path="/writing-mode" element={<WritingMode />} />
                 <Route path="/writing" element={<Writing />} />
@@ -80,22 +78,24 @@ const App = () => (
                 <Route path="/speaking" element={<Speaking />} />
                 <Route path="/sentence-writing" element={<SentenceWriting />} />
                 <Route path="/sentence-practice" element={<SentencePractice />} />
-                
+
                 <Route path="/chat" element={<Chat />} />
                 <Route path="/test-stats" element={<TestStatistics />} />
 
                 <Route path="/progress" element={<Progress />} />
                 <Route path="/leaderboard" element={<Leaderboard />} />
                 <Route path="/reading-exercises" element={<ReadingExercises />} />
-                
+
                 {/* TOEIC Test routes */}
                 <Route path="/test-list" element={<TestList />} />
                 <Route path="/test-config" element={<TestConfiguration />} />
                 <Route path="/test-config/:testId" element={<TestConfiguration />} />
                 <Route path="/test-exam/:testId" element={<TestExam />} />
-                
+
                 {/* Checkout */}
                 <Route path="/checkout" element={<Checkout />} />
+                <Route path="/pricing" element={<Pricing />} />
+              </Route>
 
               {/* Admin routes */}
               <Route path="/admin" element={

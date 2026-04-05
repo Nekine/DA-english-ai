@@ -10,6 +10,7 @@ export interface RegisterRequest {
   username: string;
   password: string;
   fullName?: string | null;
+  currentLevel?: "unknown" | "A1" | "A2" | "B1" | "B2" | "C1" | "C2";
 }
 
 export interface LoginRequest {
@@ -41,6 +42,7 @@ function toAuthResponseUser(input: {
   username: string | null;
   fullName: string | null;
   avatar: string | null;
+  currentLevel: "A1" | "A2" | "B1" | "B2" | "C1" | "C2" | null;
   role: "user" | "admin" | "customer";
   status: "active" | "inactive" | "banned";
   accountType: "free" | "premium";
@@ -52,6 +54,7 @@ function toAuthResponseUser(input: {
     username: input.username,
     fullName: input.fullName,
     avatar: input.avatar,
+    currentLevel: input.currentLevel,
     role: input.role,
     status: input.status,
     accountType: input.accountType,
@@ -96,6 +99,7 @@ export async function register(input: RegisterRequest): Promise<AuthResponse> {
   try {
     const email = input.email.trim().toLowerCase();
     const username = input.username.trim();
+    const currentLevel = input.currentLevel && input.currentLevel !== "unknown" ? input.currentLevel : null;
 
     const exists = await authRepository.existsByEmailOrUsername(email, username);
     if (exists) {
@@ -108,6 +112,7 @@ export async function register(input: RegisterRequest): Promise<AuthResponse> {
       username,
       passwordHash,
       fullName: input.fullName?.trim() ?? null,
+      currentLevel,
       role: USER_ROLE.CUSTOMER,
     });
 
@@ -117,6 +122,7 @@ export async function register(input: RegisterRequest): Promise<AuthResponse> {
       username,
       fullName: input.fullName?.trim() ?? null,
       avatar: null,
+      currentLevel,
       role: USER_ROLE.CUSTOMER,
       status: USER_STATUS.ACTIVE,
       accountType: ACCOUNT_TYPE.FREE,
@@ -172,6 +178,7 @@ export async function login(input: LoginRequest): Promise<AuthResponse> {
       username: user.username,
       fullName: user.fullName,
       avatar: user.avatarUrl,
+      currentLevel: user.currentLevel,
       role: user.role,
       status: user.status,
       accountType: user.accountType,
@@ -250,6 +257,7 @@ export async function oauthLogin(input: OAuthLoginRequest): Promise<AuthResponse
       username: user.username,
       fullName: user.fullName,
       avatar: user.avatarUrl,
+      currentLevel: user.currentLevel,
       role: user.role,
       status: user.status,
       accountType: user.accountType,
@@ -282,9 +290,18 @@ export async function getUserById(userId: number): Promise<AuthUserSummary | nul
     username: user.username,
     fullName: user.fullName,
     avatar: user.avatarUrl,
+    currentLevel: user.currentLevel,
     role: user.role,
     status: user.status,
     accountType: user.accountType,
     premiumExpiresAt: user.premiumExpiresAt?.toISOString() ?? null,
   });
+}
+
+export async function updateCurrentUserAvatar(
+  userId: number,
+  avatarUrl: string,
+): Promise<AuthUserSummary | null> {
+  await authRepository.updateAvatarUrl(userId, avatarUrl);
+  return getUserById(userId);
 }

@@ -18,13 +18,30 @@ function readBoolean(value: string | undefined, fallback: boolean): boolean {
   return value.toLowerCase() === "true";
 }
 
+function readAuthMode(value: string | undefined): "windows" | "sql" {
+  if (!value) {
+    return "windows";
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === "sql" ? "sql" : "windows";
+}
+
 export function loadSqlServerConfig(): SqlServerConfig {
+  const authMode = readAuthMode(process.env.DB_AUTH_MODE);
+
   return {
-    server: process.env.DB_HOST ?? "localhost",
+    server: process.env.DB_HOST ?? "NEEKINE",
     port: readNumber(process.env.DB_PORT, 1433),
     database: process.env.DB_NAME ?? "english_ai",
-    user: process.env.DB_USER ?? "sa",
-    password: process.env.DB_PASSWORD ?? "",
+    authMode,
+    ...(authMode === "sql"
+      ? {
+          user: process.env.DB_USER ?? "sa",
+          password: process.env.DB_PASSWORD ?? "",
+        }
+      : {}),
+    odbcDriver: process.env.DB_ODBC_DRIVER ?? "ODBC Driver 17 for SQL Server",
     encrypt: readBoolean(process.env.DB_ENCRYPT, false),
     trustServerCertificate: readBoolean(process.env.DB_TRUST_SERVER_CERTIFICATE, true),
     poolMin: readNumber(process.env.DB_POOL_MIN, 0),

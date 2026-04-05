@@ -62,7 +62,7 @@ export function loadEnv(): AppEnv {
   const nodeEnv =
     nodeEnvRaw === "production" || nodeEnvRaw === "test" ? nodeEnvRaw : "development";
   const isProduction = nodeEnv === "production";
-  const dbEnabledDefault = isProduction;
+  const dbEnabledDefault = nodeEnv !== "test";
 
   return {
     NODE_ENV: nodeEnv,

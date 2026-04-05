@@ -7,28 +7,61 @@ import { loadSqlServerConfig, toMsSqlConfig } from "./config";
 
 let pool: sql.ConnectionPool | null = null;
 
+function buildWindowsConnectionString(cfg: ReturnType<typeof loadSqlServerConfig>): string {
+  return [
+    `Driver={${cfg.odbcDriver}}`,
+    `Server=${cfg.server}${cfg.port ? `,${cfg.port}` : ""}`,
+    `Database=${cfg.database}`,
+    "Trusted_Connection=Yes",
+    `Encrypt=${cfg.encrypt ? "Yes" : "No"}`,
+    `TrustServerCertificate=${cfg.trustServerCertificate ? "Yes" : "No"}`,
+  ].join(";");
+}
+
 export async function getDbPool(): Promise<sql.ConnectionPool> {
   if (pool && pool.connected) {
     return pool;
   }
 
   const cfg = loadSqlServerConfig();
-  if (!cfg.password) {
-    throw new AppError(
-      "DB_PASSWORD is required for SQL Server connection",
-      HTTP_STATUS.INTERNAL_SERVER_ERROR,
-      ERROR_CODES.DATABASE_ERROR,
-    );
-  }
-
-  const msSqlConfig = toMsSqlConfig(cfg);
 
   try {
-    pool = await sql.connect(msSqlConfig);
+    if (cfg.authMode === "windows") {
+      const sqlWindowsModule = await import("mssql/msnodesqlv8");
+      const sqlWindows = sqlWindowsModule.default as unknown as typeof sql;
+
+      pool = await sqlWindows.connect({
+        connectionString: buildWindowsConnectionString(cfg),
+        options: {
+          trustedConnection: true,
+          encrypt: cfg.encrypt,
+          trustServerCertificate: cfg.trustServerCertificate,
+        },
+        pool: {
+          min: cfg.poolMin,
+          max: cfg.poolMax,
+        },
+        connectionTimeout: cfg.connectionTimeoutMs,
+        requestTimeout: cfg.requestTimeoutMs,
+      } as unknown as sql.config);
+    } else {
+      if (!cfg.user || !cfg.password) {
+        throw new AppError(
+          "DB_USER and DB_PASSWORD are required when DB_AUTH_MODE=sql",
+          HTTP_STATUS.INTERNAL_SERVER_ERROR,
+          ERROR_CODES.DATABASE_ERROR,
+        );
+      }
+
+      const msSqlConfig = toMsSqlConfig(cfg);
+      pool = await sql.connect(msSqlConfig);
+    }
+
     logger.info("SQL Server connection pool initialized", {
       server: cfg.server,
       database: cfg.database,
       port: cfg.port,
+      authMode: cfg.authMode,
     });
 
     return pool;

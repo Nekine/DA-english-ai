@@ -6,9 +6,22 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { useTheme } from '@/components/ThemeProvider';
 import { authService } from '@/services/authService';
+
+const CEFR_LEVEL_OPTIONS = [
+    { value: 'unknown', label: 'Chưa biết (vào hệ thống test sau)' },
+    { value: 'A1', label: 'A1' },
+    { value: 'A2', label: 'A2' },
+    { value: 'B1', label: 'B1' },
+    { value: 'B2', label: 'B2' },
+    { value: 'C1', label: 'C1' },
+    { value: 'C2', label: 'C2' },
+] as const;
+
+type CefrLevelValue = typeof CEFR_LEVEL_OPTIONS[number]['value'];
 
 const Register: React.FC = () => {
     const navigate = useNavigate();
@@ -19,6 +32,7 @@ const Register: React.FC = () => {
         fullName: '',
         email: '',
         username: '',
+        currentLevel: 'unknown' as CefrLevelValue,
         password: '',
         confirmPassword: '',
         agreeTerms: false,
@@ -38,6 +52,13 @@ const Register: React.FC = () => {
         setFormData(prev => ({
             ...prev,
             agreeTerms: checked,
+        }));
+    };
+
+    const handleLevelChange = (value: string) => {
+        setFormData(prev => ({
+            ...prev,
+            currentLevel: value as CefrLevelValue,
         }));
     };
 
@@ -118,6 +139,7 @@ const Register: React.FC = () => {
                 password: formData.password,
                 username: formData.username,
                 fullName: formData.fullName,
+                currentLevel: formData.currentLevel,
             });
 
             if (!response.success) {
@@ -150,7 +172,7 @@ const Register: React.FC = () => {
             });
 
             // Chuyển hướng về trang đăng nhập
-            navigate('/Login');
+            navigate('/login');
 
         } catch (error: unknown) {
             console.error('Registration error:', error);
@@ -251,6 +273,32 @@ const Register: React.FC = () => {
                                     disabled={isLoading}
                                 />
                             </div>
+                        </div>
+
+                        {/* Current English level */}
+                        <div className="space-y-2">
+                            <Label htmlFor="currentLevel" className="text-gray-700 dark:text-gray-300">
+                                Trình độ tiếng Anh hiện tại
+                            </Label>
+                            <Select
+                                value={formData.currentLevel}
+                                onValueChange={handleLevelChange}
+                                disabled={isLoading}
+                            >
+                                <SelectTrigger
+                                    id="currentLevel"
+                                    className="py-6 rounded-xl text-base dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                                >
+                                    <SelectValue placeholder="Chọn trình độ hiện tại" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {CEFR_LEVEL_OPTIONS.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>
+                                            {option.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
 
                         {/* Password field */}

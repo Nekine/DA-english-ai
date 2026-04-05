@@ -1,5 +1,6 @@
 import cors from "cors";
 import express, { type Request, type Response } from "express";
+import path from "node:path";
 import { authContextMiddleware } from "./middlewares/auth-context";
 import { errorHandlerMiddleware, notFoundMiddleware } from "./middlewares/error-handler";
 import { apiRoutes } from "./routes";
@@ -10,6 +11,7 @@ export function createApp() {
 
   app.use(cors());
   app.use(express.json({ limit: "1mb" }));
+  app.use("/images", express.static(path.resolve(process.cwd(), "images")));
 
   app.use((req, res, next) => {
     const startedAt = Date.now();

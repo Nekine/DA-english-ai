@@ -46,9 +46,9 @@ INSERT INTO dbo.ChinhSachLoaiTaiKhoan (
     ChoPhepTaiTaoBaiTap, ChoPhepTaiTaoDeThi, DangSuDung
 )
 VALUES
-(N'basic',   N'Cơ bản',  N'Gói mặc định cho người dùng mới', 2, 1, 1, 1, 1),
-(N'premium', N'Premium', N'Gói nâng cao với quota rộng hơn', 5, 4, 1, 1, 1),
-(N'max',     N'Max',     N'Gói cao nhất, linh hoạt nhất',     10, 8, 1, 1, 1);
+(N'basic',   N'Cơ bản',  N'Gói mặc định cho người dùng mới', 5, 1, 1, 1, 1),
+(N'premium', N'Premium', N'Gói nâng cao với quota rộng hơn', 15, 10, 1, 1, 1),
+(N'max',     N'Max',     N'Gói cao nhất, linh hoạt nhất',     30, 20, 1, 1, 1);
 GO
 
 /* =========================================================
@@ -79,6 +79,10 @@ CREATE TABLE dbo.TaiKhoan (
     CONSTRAINT CK_TaiKhoan_LoaiTaiKhoan CHECK (LoaiTaiKhoan IN (N'basic', N'premium', N'max'))
 );
 GO
+
+select * from dbo.TaiKhoan
+select * from dbo.NguoiDung
+select * from dbo.LichSuTrangThaiTaiKhoan
 
 CREATE TABLE dbo.NguoiDung (
     NguoiDungId           INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_NguoiDung PRIMARY KEY,
@@ -479,18 +483,62 @@ GO
 
 
 /* =========================================================
-   12) GỢI Ý DỮ LIỆU MẪU
+   BẢNG XẾP HẠNG
    ========================================================= */
 
-/*
--- Nếu muốn thêm bài tập mẫu:
-INSERT INTO dbo.BaiTapAI (NguoiDungId, KieuBaiTap, ChuDeBaiTap, TrinhDo, NoiDungJson)
-VALUES
-(1, N'listening', N'du lịch', N'A2', N'{"title":"Listening practice","questions":[{"id":1,"text":"..."}]}');
+IF OBJECT_ID(N'dbo.BangXepHang', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.BangXepHang (
+        BangXepHangId     INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_BangXepHang PRIMARY KEY,
+        TenBangXepHang    NVARCHAR(200) NOT NULL,
+        KieuBangXepHang   NVARCHAR(20) NOT NULL,  -- daily, weekly, monthly, all_time, custom
+        NgayBatDau        DATE NULL,
+        NgayKetThuc       DATE NULL,
+        MoTa              NVARCHAR(500) NULL,
+        CongThucJson      NVARCHAR(MAX) NULL,     -- công thức tính điểm / quy tắc xếp hạng
+        TrangThai         NVARCHAR(20) NOT NULL CONSTRAINT DF_BangXepHang_TrangThai DEFAULT N'active',
+        NgayTao           DATETIME2(0) NOT NULL CONSTRAINT DF_BangXepHang_NgayTao DEFAULT SYSDATETIME(),
+        NgayCapNhat       DATETIME2(0) NOT NULL CONSTRAINT DF_BangXepHang_NgayCapNhat DEFAULT SYSDATETIME(),
 
--- Nếu muốn thêm đề thi mẫu:
-INSERT INTO dbo.DeThiAI (NguoiDungId, TenDeThi, KieuDeThi, LanThu, TrinhDoMucTieu, TongSoPhanDuKien, TongSoBaiTapDuKien, DuLieuTongQuanJson)
-VALUES
-(1, N'Đề đánh giá trình độ đầu vào', N'placement', 1, N'A2', 4, 20, N'{"timeLimit":45,"goal":"placement"}');
+        CONSTRAINT CK_BangXepHang_KieuBangXepHang CHECK (KieuBangXepHang IN (N'daily', N'weekly', N'monthly', N'all_time', N'custom')),
+        CONSTRAINT CK_BangXepHang_TrangThai CHECK (TrangThai IN (N'active', N'inactive', N'archived')),
+        CONSTRAINT CK_BangXepHang_CongThucJson CHECK (CongThucJson IS NULL OR ISJSON(CongThucJson) = 1)
+    );
+END
 GO
-*/
+
+IF OBJECT_ID(N'dbo.ChiTietBangXepHang', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.ChiTietBangXepHang (
+        ChiTietBangXepHangId INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_ChiTietBangXepHang PRIMARY KEY,
+        BangXepHangId        INT NOT NULL,
+        NguoiDungId          INT NOT NULL,
+        HangXep              INT NULL,
+        DiemXepHang          DECIMAL(12,2) NOT NULL CONSTRAINT DF_ChiTietBangXepHang_DiemXepHang DEFAULT (0),
+        TongXP               INT NOT NULL CONSTRAINT DF_ChiTietBangXepHang_TongXP DEFAULT (0),
+        TongPhutHoc          INT NOT NULL CONSTRAINT DF_ChiTietBangXepHang_TongPhutHoc DEFAULT (0),
+        TongBaiHoanThanh     INT NOT NULL CONSTRAINT DF_ChiTietBangXepHang_TongBaiHoanThanh DEFAULT (0),
+        TongDeThiDaLam       INT NOT NULL CONSTRAINT DF_ChiTietBangXepHang_TongDeThiDaLam DEFAULT (0),
+        SoNgayDiemDanhLienTiep INT NOT NULL CONSTRAINT DF_ChiTietBangXepHang_SoNgayDiemDanhLienTiep DEFAULT (0),
+        CapDoHienTai         NVARCHAR(20) NULL,
+        ThongSoBoSungJson    NVARCHAR(MAX) NULL,
+        NgayCapNhat          DATETIME2(0) NOT NULL CONSTRAINT DF_ChiTietBangXepHang_NgayCapNhat DEFAULT SYSDATETIME(),
+
+        CONSTRAINT FK_ChiTietBangXepHang_BangXepHang FOREIGN KEY (BangXepHangId) REFERENCES dbo.BangXepHang(BangXepHangId) ON DELETE CASCADE,
+        CONSTRAINT FK_ChiTietBangXepHang_NguoiDung FOREIGN KEY (NguoiDungId) REFERENCES dbo.NguoiDung(NguoiDungId) ON DELETE CASCADE,
+        CONSTRAINT UQ_ChiTietBangXepHang UNIQUE (BangXepHangId, NguoiDungId),
+        CONSTRAINT CK_ChiTietBangXepHang_HangXep CHECK (HangXep IS NULL OR HangXep >= 1),
+        CONSTRAINT CK_ChiTietBangXepHang_DiemXepHang CHECK (DiemXepHang >= 0),
+        CONSTRAINT CK_ChiTietBangXepHang_ThongSoBoSungJson CHECK (ThongSoBoSungJson IS NULL OR ISJSON(ThongSoBoSungJson) = 1)
+    );
+END
+GO
+
+CREATE INDEX IX_BangXepHang_KieuBangXepHang ON dbo.BangXepHang(KieuBangXepHang);
+CREATE INDEX IX_BangXepHang_TrangThai ON dbo.BangXepHang(TrangThai);
+CREATE INDEX IX_BangXepHang_NgayBatDau_NgayKetThuc ON dbo.BangXepHang(NgayBatDau, NgayKetThuc);
+
+CREATE INDEX IX_ChiTietBangXepHang_BangXepHangId ON dbo.ChiTietBangXepHang(BangXepHangId);
+CREATE INDEX IX_ChiTietBangXepHang_NguoiDungId ON dbo.ChiTietBangXepHang(NguoiDungId);
+CREATE INDEX IX_ChiTietBangXepHang_DiemXepHang ON dbo.ChiTietBangXepHang(BangXepHangId, DiemXepHang DESC, TongXP DESC, TongPhutHoc DESC);
+GO

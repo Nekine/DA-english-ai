@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Book, GraduationCap, MessageCircle, User, Sun, Moon, Globe, Settings, LogOut, UserCircle, Pencil, FileText, Trophy, TrendingUp, ChevronDown } from 'lucide-react';
+import { Book, GraduationCap, MessageCircle, User, Sun, Moon, Globe, Settings, LogOut, UserCircle, FileText, Trophy, TrendingUp, ChevronDown, Camera, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from './ThemeProvider';
 import { Button } from './ui/button';
@@ -35,11 +35,13 @@ import {
 } from './ui/sheet';
 import { useAuth } from './AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth0Integration } from '@/hooks/useAuth0Integration';
+import { authService } from '@/services/authService';
+import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 
 const Navbar = () => {
   const location = useLocation();
@@ -48,6 +50,8 @@ const Navbar = () => {
   const { handleLogout: auth0Logout } = useAuth0Integration();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
@@ -55,6 +59,28 @@ const Navbar = () => {
     fullName: user?.fullName || '',
     email: user?.email || '',
   });
+
+  const userCurrentLevel = user?.currentLevel || 'Chưa biết';
+
+  const resolveAvatarSrc = (avatar?: string) => {
+    if (!avatar) {
+      return undefined;
+    }
+
+    if (/^https?:\/\//i.test(avatar)) {
+      return avatar;
+    }
+
+    if (avatar.startsWith('/images/')) {
+      const apiTarget = import.meta.env.VITE_API_TARGET as string | undefined;
+      const inferredApiTarget = `${window.location.protocol}//${window.location.hostname}:3000`;
+      return `${apiTarget || inferredApiTarget}${avatar}`;
+    }
+
+    return avatar;
+  };
+
+  const userAvatarSrc = resolveAvatarSrc(user?.avatar);
 
   const navItems = [
     { name: 'Bảng xếp hạng', path: '/leaderboard', icon: Trophy, color: 'text-yellow-600' },
@@ -126,6 +152,62 @@ const Navbar = () => {
         description: message,
         variant: "destructive",
       });
+    }
+  };
+
+  const handleAvatarFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !user) {
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: 'Định dạng không hợp lệ',
+        description: 'Vui lòng chọn file ảnh (JPG, PNG, WEBP, GIF).',
+        variant: 'destructive',
+      });
+      event.target.value = '';
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: 'Ảnh quá lớn',
+        description: 'Dung lượng ảnh tối đa là 5MB.',
+        variant: 'destructive',
+      });
+      event.target.value = '';
+      return;
+    }
+
+    try {
+      setIsUploadingAvatar(true);
+      const response = await authService.uploadAvatar(file);
+
+      if (response.user) {
+        login(response.user);
+      } else if (response.avatarUrl) {
+        login({
+          ...user,
+          avatar: response.avatarUrl,
+        });
+      }
+
+      toast({
+        title: 'Cập nhật thành công',
+        description: 'Ảnh đại diện đã được cập nhật.',
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Không thể cập nhật ảnh đại diện.';
+      toast({
+        title: 'Cập nhật thất bại',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsUploadingAvatar(false);
+      event.target.value = '';
     }
   };
 
@@ -224,7 +306,12 @@ const Navbar = () => {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="icon" className="rounded-full border-border relative">
-                <User className="h-5 w-5" />
+                <Avatar className="h-8 w-8">
+                  {userAvatarSrc ? <AvatarImage src={userAvatarSrc} alt={user?.username || 'User avatar'} /> : null}
+                  <AvatarFallback>
+                    <User className="h-4 w-4" />
+                  </AvatarFallback>
+                </Avatar>
                 {user && user.accountType === 'premium' && (
                   <span className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 rounded-full border-2 border-background"></span>
                 )}
@@ -279,15 +366,34 @@ const Navbar = () => {
                       <div className="py-4 space-y-4">
                         <div className="flex items-center justify-center mb-6">
                           <div className="relative">
-                            <div className="w-24 h-24 rounded-full bg-muted flex items-center justify-center overflow-hidden border-2 border-primary">
-                              <UserCircle className="w-20 h-20 text-muted-foreground" />
-                            </div>
+                            <Avatar className="w-24 h-24 border-2 border-primary">
+                              {userAvatarSrc ? (
+                                <AvatarImage src={userAvatarSrc} alt={user?.username || 'Avatar'} />
+                              ) : null}
+                              <AvatarFallback>
+                                <UserCircle className="w-20 h-20 text-muted-foreground" />
+                              </AvatarFallback>
+                            </Avatar>
+                            <input
+                              ref={avatarInputRef}
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp,image/gif"
+                              className="hidden"
+                              onChange={handleAvatarFileChange}
+                            />
                             <Button
+                              type="button"
                               size="sm"
                               variant="outline"
                               className="absolute bottom-0 right-0 rounded-full size-8 p-0"
+                              onClick={() => avatarInputRef.current?.click()}
+                              disabled={isUploadingAvatar}
                             >
-                              <Settings className="h-4 w-4" />
+                              {isUploadingAvatar ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Camera className="h-4 w-4" />
+                              )}
                             </Button>
                           </div>
                         </div>
@@ -328,6 +434,11 @@ const Navbar = () => {
                               <h4 className="font-medium text-sm">Vai trò</h4>
                               <p className="text-muted-foreground">{user?.role || 'user'}</p>
                             </div>
+                            <div className="space-y-2">
+                              <h4 className="font-medium text-sm">Trình độ hiện tại</h4>
+                              <p className="text-muted-foreground">{userCurrentLevel}</p>
+                              <p className="text-xs text-muted-foreground">Mục này chỉ hiển thị, không chỉnh sửa tại đây.</p>
+                            </div>
                           </>
                         ) : (
                           <>
@@ -346,6 +457,10 @@ const Navbar = () => {
                             <div className="space-y-2">
                               <h4 className="font-medium text-sm">Vai trò</h4>
                               <p className="text-muted-foreground">{user?.role || 'user'}</p>
+                            </div>
+                            <div className="space-y-2">
+                              <h4 className="font-medium text-sm">Trình độ hiện tại</h4>
+                              <p className="text-muted-foreground">{userCurrentLevel}</p>
                             </div>
                             <div className="space-y-2">
                               <h4 className="font-medium text-sm">Loại tài khoản</h4>
