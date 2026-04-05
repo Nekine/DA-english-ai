@@ -56,10 +56,21 @@ class ApiService {
     return this.baseUrl;
   }
 
+  private getAuthToken(): string | null {
+    try {
+      return localStorage.getItem('engace_token');
+    } catch {
+      return null;
+    }
+  }
+
   // Get headers
   getHeaders(): HeadersInit {
+    const token = this.getAuthToken();
+
     return {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     };
   }
 
@@ -67,13 +78,9 @@ class ApiService {
     try {
       const url = `${this.baseUrl}${endpoint}`;
 
-      // Get auth token from localStorage
-      const token = localStorage.getItem('engace_token');
-
       // Default headers
       const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        ...this.getHeaders(),
         ...options.headers,
       };
 
@@ -84,10 +91,6 @@ class ApiService {
 
       // Check if the response is successful
       if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        throw new Error(
-          errorData?.message || `Server responded with status: ${response.status}`
-        );
         const errorText = await response.text();
         let errorMessage = errorText || `Server responded with status: ${response.status}`;
         
@@ -148,10 +151,12 @@ class ApiService {
   async postFormData<T>(endpoint: string, formData: FormData): Promise<T> {
     try {
       const url = `${this.baseUrl}${endpoint}`;
+      const token = this.getAuthToken();
 
       const response = await fetch(url, {
         method: 'POST',
         // Không đặt Content-Type khi sử dụng FormData vì trình duyệt sẽ tự xử lý
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         body: formData,
       });
 

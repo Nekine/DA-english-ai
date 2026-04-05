@@ -110,6 +110,32 @@ export interface GenerateSentencesResponse {
   }>;
 }
 
+export interface SubmitSentenceWritingResultRequest {
+  exerciseId: number;
+  answers: Array<{
+    sentenceId?: number;
+    userTranslation: string;
+  }>;
+  completedAt?: string;
+}
+
+export interface SubmitSentenceWritingResultResponse {
+  success: boolean;
+  message: string;
+  score: number;
+  totalQuestions: number;
+  correctAnswers: number;
+  incorrectAnswers: number;
+  reviews: Array<{
+    sentenceId: number;
+    vietnamese: string;
+    userAnswer: string;
+    correctAnswer: string;
+    isCorrect: boolean;
+    score: number;
+  }>;
+}
+
 export const sentenceWritingApi = {
   generateSentences: async (data: GenerateSentencesRequest, provider: AiProvider = 'openai'): Promise<GenerateSentencesResponse> => {
     try {
@@ -217,6 +243,30 @@ export const sentenceWritingApi = {
       return await response.json();
     } catch (error) {
       console.error('❌ Error saving sentence writing:', error);
+      throw error;
+    }
+  },
+
+  submitSentenceWritingResult: async (
+    data: SubmitSentenceWritingResultRequest,
+  ): Promise<SubmitSentenceWritingResultResponse> => {
+    try {
+      const response = await fetch(`${apiService.getBaseUrl()}/api/exercise/submit-sentence-writing-result`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...apiService.getHeaders()
+        },
+        body: JSON.stringify(data)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to submit sentence writing result: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('❌ Error submitting sentence writing result:', error);
       throw error;
     }
   }

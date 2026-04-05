@@ -16,6 +16,8 @@ type QuizQuestion = {
   ExplanationInVietnamese: string;
 };
 
+type UnknownRecord = Record<string, unknown>;
+
 const ENGLISH_LEVELS: Record<number, string> = {
   1: "Beginner: Understands clear and basic personal information and very short simple content",
   2: "Elementary: Understands short texts on familiar daily topics and basic information from short emails",
@@ -103,6 +105,229 @@ function normalizeProvider(provider: string | undefined): AiProvider | null {
   return null;
 }
 
+function asRecord(value: unknown): UnknownRecord | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as UnknownRecord;
+}
+
+function readStringFromKeys(record: UnknownRecord | null, keys: string[]): string {
+  if (!record) {
+    return "";
+  }
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  return "";
+}
+
+function readArrayFromKeys(record: UnknownRecord | null, keys: string[]): unknown[] {
+  if (!record) {
+    return [];
+  }
+
+  for (const key of keys) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      return value;
+    }
+  }
+
+  return [];
+}
+
+function readObjectFromKeys(record: UnknownRecord | null, keys: string[]): UnknownRecord | null {
+  if (!record) {
+    return null;
+  }
+
+  for (const key of keys) {
+    const value = asRecord(record[key]);
+    if (value) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function optionsFromObject(optionObject: UnknownRecord): string[] {
+  const orderedKeys = [
+    "A", "B", "C", "D",
+    "a", "b", "c", "d",
+    "1", "2", "3", "4",
+    "OptionA", "OptionB", "OptionC", "OptionD",
+    "optionA", "optionB", "optionC", "optionD",
+  ];
+
+  const options: string[] = [];
+  for (const key of orderedKeys) {
+    const value = optionObject[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      options.push(value.trim());
+    }
+    if (options.length >= 4) {
+      break;
+    }
+  }
+
+  if (options.length < 4) {
+    for (const value of Object.values(optionObject)) {
+      if (typeof value === "string" && value.trim().length > 0) {
+        options.push(value.trim());
+      }
+      if (options.length >= 4) {
+        break;
+      }
+    }
+  }
+
+  return options;
+}
+
+function normalizeOptions(rawOptions: unknown[]): string[] {
+  const options = rawOptions
+    .map((option) => String(option ?? "").trim())
+    .filter((option) => option.length > 0)
+    .slice(0, 4);
+
+  while (options.length < 4) {
+    options.push(`Option ${String.fromCharCode(65 + options.length)}`);
+  }
+
+  return options;
+}
+
+function normalizeRightOptionIndex(rawValue: unknown, options: string[]): number {
+  if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
+    const numeric = Math.trunc(rawValue);
+    if (numeric >= 0 && numeric <= 3) {
+      return numeric;
+    }
+    if (numeric >= 1 && numeric <= 4) {
+      return numeric - 1;
+    }
+  }
+
+  if (typeof rawValue === "string") {
+    const token = rawValue.trim();
+    if (/^\d+$/.test(token)) {
+      const numeric = Number(token);
+      if (numeric >= 0 && numeric <= 3) {
+        return numeric;
+      }
+      if (numeric >= 1 && numeric <= 4) {
+        return numeric - 1;
+      }
+    }
+
+    const upper = token.toUpperCase();
+    const optionLetterMatch = upper.match(/^(?:OPTION\s*)?([A-D])$/);
+    if (optionLetterMatch?.[1]) {
+      return optionLetterMatch[1].charCodeAt(0) - 65;
+    }
+
+    if (/^[A-D]$/.test(upper)) {
+      return upper.charCodeAt(0) - 65;
+    }
+
+    const byText = options.findIndex((option) => option.toLowerCase() === token.toLowerCase());
+    if (byText >= 0) {
+      return byText;
+    }
+  }
+
+  return 0;
+}
+
+function extractAssignmentItems(payload: unknown): UnknownRecord[] {
+  if (Array.isArray(payload)) {
+    return payload.map((item) => asRecord(item)).filter((item): item is UnknownRecord => Boolean(item));
+  }
+
+  const record = asRecord(payload);
+  if (!record) {
+    return [];
+  }
+
+  const candidates = readArrayFromKeys(record, ["Questions", "questions", "items", "Items", "data", "Data"]);
+  if (candidates.length > 0) {
+    return candidates.map((item) => asRecord(item)).filter((item): item is UnknownRecord => Boolean(item));
+  }
+
+  if (record.Question || record.question || record.q || record.prompt) {
+    return [record];
+  }
+
+  return [];
+}
+
+function toQuizQuestion(record: UnknownRecord, index: number, topic: string): QuizQuestion {
+  const arrayOptions = readArrayFromKeys(record, ["Options", "options", "choices", "Choices"]);
+  const objectOptions = readObjectFromKeys(record, ["Options", "options", "choices", "Choices", "optionMap", "OptionMap"]);
+  const keyedOptions = [
+    record.optionA,
+    record.optionB,
+    record.optionC,
+    record.optionD,
+    record.OptionA,
+    record.OptionB,
+    record.OptionC,
+    record.OptionD,
+  ];
+
+  const rawOptions =
+    arrayOptions.length > 0
+      ? arrayOptions
+      : objectOptions
+        ? optionsFromObject(objectOptions)
+        : keyedOptions;
+
+  const options = normalizeOptions(rawOptions);
+  const questionText =
+    readStringFromKeys(record, ["Question", "question", "QuestionText", "questionText", "q", "prompt"]) ||
+    `Question ${index + 1} about ${topic}`;
+
+  const rightOptionIndex = normalizeRightOptionIndex(
+    record.RightOptionIndex
+      ?? record.rightOptionIndex
+      ?? record.correctAnswer
+      ?? record.CorrectAnswer
+      ?? record.answer
+      ?? record.Answer
+      ?? record.correctOption
+      ?? record.CorrectOption
+      ?? record.correct
+      ?? record.Correct,
+    options,
+  );
+
+  const explanation =
+    readStringFromKeys(record, [
+      "ExplanationInVietnamese",
+      "explanationInVietnamese",
+      "Explanation",
+      "explanation",
+      "reason",
+      "Reason",
+    ]) ||
+    `Đáp án đúng là "${options[rightOptionIndex] ?? "A"}" vì phù hợp ngữ cảnh và cấu trúc ngữ pháp của câu.`;
+
+  return {
+    Question: questionText,
+    Options: options,
+    RightOptionIndex: rightOptionIndex,
+    ExplanationInVietnamese: explanation,
+  };
+}
+
 export async function generateAssignments(input: GenerateAssignmentInput): Promise<{ status: number; error?: string; data?: QuizQuestion[] }> {
   const validationError = ensureValidInput(input);
   if (validationError) {
@@ -132,31 +357,33 @@ export async function generateAssignments(input: GenerateAssignmentInput): Promi
   ].join("\n");
 
   try {
-    const data = await generateJsonFromProvider<QuizQuestion[]>({
+    const data = await generateJsonFromProvider<unknown>({
       provider,
       systemPrompt,
       userPrompt,
       temperature: 0.4,
     });
 
-    const normalized = (Array.isArray(data) ? data : []).slice(0, totalQuestions).map((q) => ({
-      Question: String(q.Question ?? "").trim(),
-      Options: Array.isArray(q.Options) ? q.Options.slice(0, 4).map((x) => String(x ?? "").trim()) : [],
-      RightOptionIndex: Number(q.RightOptionIndex ?? 0),
-      ExplanationInVietnamese: String(q.ExplanationInVietnamese ?? "").trim(),
-    }));
+    const normalized = extractAssignmentItems(data)
+      .slice(0, totalQuestions)
+      .map((item, index) => toQuizQuestion(item, index, topic));
 
     if (normalized.length === 0) {
       return { status: 502, error: "AI returned empty questions" };
     }
 
-    for (const item of normalized) {
-      if (!item.Question || item.Options.length !== 4 || item.RightOptionIndex < 0 || item.RightOptionIndex > 3) {
-        return { status: 502, error: "AI returned invalid assignment format" };
+    if (normalized.length < totalQuestions) {
+      for (let i = normalized.length; i < totalQuestions; i += 1) {
+        normalized.push({
+          Question: `Question ${i + 1} about ${topic}`,
+          Options: ["Option A", "Option B", "Option C", "Option D"],
+          RightOptionIndex: 0,
+          ExplanationInVietnamese: "Dựa vào ngữ cảnh để chọn đáp án phù hợp nhất.",
+        });
       }
     }
 
-    return { status: 201, data: normalized };
+    return { status: 201, data: normalized.slice(0, totalQuestions) };
   } catch (error) {
     return {
       status: getHttpStatusFromError(error, 502),

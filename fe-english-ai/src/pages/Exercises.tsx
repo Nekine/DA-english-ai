@@ -246,6 +246,7 @@ const Exercises: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [exerciseSet, setExerciseSet] = useState<ExerciseSet | null>(null);
   const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [savedExerciseId, setSavedExerciseId] = useState<number | null>(null);
   const [submissionResult, setSubmissionResult] = useState<{
     score: number;
     totalQuestions: number;
@@ -253,7 +254,7 @@ const Exercises: React.FC = () => {
     feedback: string;
   } | null>(null);
 
-  const [selectedQuestionTypes, setSelectedQuestionTypes] = useState<AssignmentType[]>([]);
+  const [selectedQuestionTypes, setSelectedQuestionTypes] = useState<AssignmentType[]>([AssignmentType.Grammar]);
   const [aiProvider, setAiProvider] = useState<'gemini' | 'openai' | 'xai'>('openai');
 
   // Timer effect
@@ -296,6 +297,15 @@ const Exercises: React.FC = () => {
     }
   };
 
+  const handleBackToCreateForm = () => {
+    setSubmissionResult(null);
+    setShowExercise(false);
+    setCurrentQuestion(1);
+    setSelectedAnswer(null);
+    setAnswers({});
+    setSavedExerciseId(null);
+  };
+
   const handleCreateExercise = async () => {
     if (!topic.trim()) {
       toast({
@@ -323,6 +333,7 @@ const Exercises: React.FC = () => {
 
       if (result && result.Questions && Array.isArray(result.Questions)) {
         setExerciseSet(result);
+        setSavedExerciseId(null);
         setTotalQuestions(result.Questions.length);
         setCurrentQuestion(1);
         setShowExercise(true);
@@ -351,6 +362,7 @@ const Exercises: React.FC = () => {
           
           if (saveResult.success) {
             console.log('✅ Exercise saved with ID:', saveResult.exerciseId);
+            setSavedExerciseId(saveResult.exerciseId ?? null);
           }
         } catch (saveError) {
           console.error('⚠️ Failed to save exercise:', saveError);
@@ -371,7 +383,9 @@ const Exercises: React.FC = () => {
       console.error('Error creating exercise:', err);
       toast({
         title: 'Không thể tạo bài tập',
-        description: 'Vui lòng thử lại sau',
+        description: err instanceof Error && err.message
+          ? err.message
+          : 'Vui lòng thử lại sau',
         variant: 'destructive'
       });
     } finally {
@@ -395,6 +409,20 @@ const Exercises: React.FC = () => {
       console.log(JSON.stringify(result, null, 2));
 
       setSubmissionResult(result);
+
+      if (savedExerciseId && exerciseSet?.Questions?.length) {
+        try {
+          const orderedAnswers = exerciseSet.Questions.map((_, index) => answers[index + 1] ?? "");
+          await exerciseService.submitExerciseResult({
+            exerciseId: savedExerciseId,
+            answers: orderedAnswers,
+            completedAt: new Date().toISOString(),
+          });
+        } catch (persistError) {
+          console.error('⚠️ Failed to persist grammar attempt:', persistError);
+        }
+      }
+
       setIsLoading(false);
       setShowExercise(false);
       toast({
@@ -483,9 +511,7 @@ const Exercises: React.FC = () => {
 
             <Button
               className="w-full mt-6 py-6 bg-blue-600 hover:bg-blue-700 text-white rounded-xl"
-              onClick={() => {
-                setSubmissionResult(null);
-              }}
+              onClick={handleBackToCreateForm}
             >
               Quay lại tạo bài tập mới
             </Button>

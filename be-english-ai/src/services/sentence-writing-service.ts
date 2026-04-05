@@ -19,6 +19,124 @@ type SentenceItem = {
   };
 };
 
+const COMMON_WORDS = new Set([
+  "a",
+  "an",
+  "the",
+  "and",
+  "or",
+  "but",
+  "for",
+  "to",
+  "of",
+  "in",
+  "on",
+  "at",
+  "by",
+  "with",
+  "from",
+  "up",
+  "down",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "do",
+  "does",
+  "did",
+  "have",
+  "has",
+  "had",
+  "i",
+  "you",
+  "he",
+  "she",
+  "it",
+  "we",
+  "they",
+  "this",
+  "that",
+  "these",
+  "those",
+  "my",
+  "your",
+  "his",
+  "her",
+  "our",
+  "their",
+  "as",
+  "if",
+  "then",
+  "than",
+  "so",
+  "very",
+]);
+
+function buildFallbackVocabulary(
+  correctAnswer: string,
+  existingWords: Set<string>,
+  needed: number,
+): Array<{ Word: string; Meaning: string }> {
+  if (needed <= 0) {
+    return [];
+  }
+
+  const tokens = (correctAnswer.match(/[A-Za-z][A-Za-z'-]*/g) ?? [])
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4);
+
+  const fallback: Array<{ Word: string; Meaning: string }> = [];
+
+  for (const token of tokens) {
+    const normalized = token.toLowerCase();
+    if (COMMON_WORDS.has(normalized) || existingWords.has(normalized)) {
+      continue;
+    }
+
+    fallback.push({
+      Word: token,
+      Meaning: "Important word from the sample sentence",
+    });
+    existingWords.add(normalized);
+
+    if (fallback.length >= needed) {
+      break;
+    }
+  }
+
+  return fallback;
+}
+
+function ensureMinimumVocabulary(
+  vocabulary: Array<{ Word: string; Meaning: string }>,
+  correctAnswer: string,
+): Array<{ Word: string; Meaning: string }> {
+  const deduped: Array<{ Word: string; Meaning: string }> = [];
+  const seen = new Set<string>();
+
+  for (const item of vocabulary) {
+    const normalizedWord = item.Word.toLowerCase();
+    if (seen.has(normalizedWord)) {
+      continue;
+    }
+
+    seen.add(normalizedWord);
+    deduped.push(item);
+  }
+
+  if (deduped.length >= 2) {
+    return deduped;
+  }
+
+  const missing = 2 - deduped.length;
+  const fallback = buildFallbackVocabulary(correctAnswer, seen, missing);
+
+  return [...deduped, ...fallback];
+}
+
 function countWords(value: string): number {
   return value.trim().split(/\s+/).filter(Boolean).length;
 }
@@ -99,12 +217,14 @@ export async function generateSentenceWriting(
             .filter((v) => v.Word && v.Meaning)
         : [];
 
+      const correctAnswer = String(item?.CorrectAnswer ?? "").trim();
+
       return {
         Id: Number(item?.Id ?? index + 1),
         Vietnamese: String(item?.Vietnamese ?? "").trim(),
-        CorrectAnswer: String(item?.CorrectAnswer ?? "").trim(),
+        CorrectAnswer: correctAnswer,
         Suggestion: {
-          Vocabulary: vocabulary,
+          Vocabulary: ensureMinimumVocabulary(vocabulary, correctAnswer),
           Structure: String(item?.Suggestion?.Structure ?? "").trim(),
         },
       };
@@ -115,7 +235,12 @@ export async function generateSentenceWriting(
     }
 
     for (const sentence of sentences) {
-      if (!sentence.Vietnamese || !sentence.CorrectAnswer || !sentence.Suggestion.Structure) {
+      if (
+        !sentence.Vietnamese ||
+        !sentence.CorrectAnswer ||
+        !sentence.Suggestion.Structure ||
+        sentence.Suggestion.Vocabulary.length < 2
+      ) {
         return { status: 502, error: "AI returned invalid sentence format" };
       }
     }

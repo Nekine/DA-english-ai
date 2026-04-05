@@ -45,6 +45,8 @@ type ReadingQuestion = {
   explanation?: string;
 };
 
+type UnknownRecord = Record<string, unknown>;
+
 function parseQuestionsJson(raw: string): ReadingQuestion[] {
   try {
     const data = JSON.parse(raw) as Array<{
@@ -112,18 +114,229 @@ function normalizeProvider(provider: string | undefined): AiProvider | null {
   return null;
 }
 
-type ReadingAiPayload = {
-  title?: string;
-  content?: string;
-  questions?: Array<{
-    questionText?: string;
-    options?: string[];
-    correctAnswer?: number;
-    explanation?: string;
-  }>;
-};
+function asRecord(value: unknown): UnknownRecord | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as UnknownRecord;
+}
+
+function readStringFromKeys(record: UnknownRecord | null, keys: string[]): string {
+  if (!record) {
+    return "";
+  }
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  return "";
+}
+
+function readArrayFromKeys(record: UnknownRecord | null, keys: string[]): unknown[] {
+  if (!record) {
+    return [];
+  }
+
+  for (const key of keys) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      return value;
+    }
+  }
+
+  return [];
+}
+
+function readObjectFromKeys(record: UnknownRecord | null, keys: string[]): UnknownRecord | null {
+  if (!record) {
+    return null;
+  }
+
+  for (const key of keys) {
+    const value = asRecord(record[key]);
+    if (value) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function optionsFromObject(optionObject: UnknownRecord): string[] {
+  const orderedKeys = [
+    "A", "B", "C", "D",
+    "a", "b", "c", "d",
+    "1", "2", "3", "4",
+    "OptionA", "OptionB", "OptionC", "OptionD",
+    "optionA", "optionB", "optionC", "optionD",
+  ];
+
+  const options: string[] = [];
+  for (const key of orderedKeys) {
+    const value = optionObject[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      options.push(value.trim());
+    }
+    if (options.length >= 4) {
+      break;
+    }
+  }
+
+  if (options.length < 4) {
+    for (const value of Object.values(optionObject)) {
+      if (typeof value === "string" && value.trim().length > 0) {
+        options.push(value.trim());
+      }
+      if (options.length >= 4) {
+        break;
+      }
+    }
+  }
+
+  return options;
+}
+
+function normalizeReadingOptions(rawOptions: unknown[]): string[] {
+  const options = rawOptions
+    .map((option) => String(option ?? "").trim())
+    .filter((option) => option.length > 0)
+    .slice(0, 4);
+
+  while (options.length < 4) {
+    options.push(`Option ${String.fromCharCode(65 + options.length)}`);
+  }
+
+  return options;
+}
+
+function resolveOptionIndex(rawValue: unknown, options: string[]): number {
+  if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
+    const numeric = Math.trunc(rawValue);
+    if (numeric >= 0 && numeric <= 3) {
+      return numeric;
+    }
+    if (numeric >= 1 && numeric <= 4) {
+      return numeric - 1;
+    }
+  }
+
+  if (typeof rawValue === "string") {
+    const token = rawValue.trim();
+    if (/^\d+$/.test(token)) {
+      const numeric = Number(token);
+      if (numeric >= 0 && numeric <= 3) {
+        return numeric;
+      }
+      if (numeric >= 1 && numeric <= 4) {
+        return numeric - 1;
+      }
+    }
+
+    const upper = token.toUpperCase();
+    const optionLetterMatch = upper.match(/^(?:OPTION\s*)?([A-D])$/);
+    if (optionLetterMatch?.[1]) {
+      return optionLetterMatch[1].charCodeAt(0) - 65;
+    }
+
+    if (/^[A-D]$/.test(upper)) {
+      return upper.charCodeAt(0) - 65;
+    }
+
+    const byText = options.findIndex((option) => option.toLowerCase() === token.toLowerCase());
+    if (byText >= 0) {
+      return byText;
+    }
+  }
+
+  return 0;
+}
+
+function extractReadingQuestions(payload: unknown): UnknownRecord[] {
+  if (Array.isArray(payload)) {
+    return payload.map((item) => asRecord(item)).filter((item): item is UnknownRecord => Boolean(item));
+  }
+
+  const record = asRecord(payload);
+  if (!record) {
+    return [];
+  }
+
+  const candidates = readArrayFromKeys(record, ["questions", "Questions", "items", "Items", "data", "Data"]);
+  if (candidates.length > 0) {
+    return candidates.map((item) => asRecord(item)).filter((item): item is UnknownRecord => Boolean(item));
+  }
+
+  if (record.question || record.Question || record.questionText || record.QuestionText) {
+    return [record];
+  }
+
+  return [];
+}
+
+function buildReadingQuestionInput(question: UnknownRecord, index: number): ReadingQuestionInput {
+  const arrayOptions = readArrayFromKeys(question, ["options", "Options", "choices", "Choices"]);
+  const objectOptions = readObjectFromKeys(question, ["options", "Options", "choices", "Choices", "optionMap", "OptionMap"]);
+  const keyedOptions = [
+    question.optionA,
+    question.optionB,
+    question.optionC,
+    question.optionD,
+    question.OptionA,
+    question.OptionB,
+    question.OptionC,
+    question.OptionD,
+  ];
+
+  const rawOptions =
+    arrayOptions.length > 0
+      ? arrayOptions
+      : objectOptions
+        ? optionsFromObject(objectOptions)
+        : keyedOptions;
+
+  const options = normalizeReadingOptions(rawOptions);
+  const correctAnswer = resolveOptionIndex(
+    question.correctAnswer
+      ?? question.CorrectAnswer
+      ?? question.rightOptionIndex
+      ?? question.RightOptionIndex
+      ?? question.answer
+      ?? question.Answer
+      ?? question.correctOption
+      ?? question.CorrectOption
+      ?? question.correct
+      ?? question.Correct,
+    options,
+  );
+
+  const questionText = readStringFromKeys(question, ["questionText", "QuestionText", "question", "Question"])
+    || `Question ${index + 1}`;
+  const explanation =
+    readStringFromKeys(question, ["explanation", "Explanation", "reason", "Reason"]) ||
+    `Đáp án đúng là "${options[correctAnswer] ?? "A"}" vì phù hợp nhất với nội dung bài đọc.`;
+  const optionA = options[0] ?? "Option A";
+  const optionB = options[1] ?? "Option B";
+  const optionC = options[2] ?? "Option C";
+  const optionD = options[3] ?? "Option D";
+
+  return {
+    questionText,
+    optionA,
+    optionB,
+    optionC,
+    optionD,
+    correctAnswer,
+    explanation,
+  };
+}
 
 export async function listReadingExercises(filters: {
+  requestedByTaiKhoanId: number;
   level?: string;
   type?: string;
   sourceType?: string;
@@ -137,53 +350,90 @@ export async function listReadingExercises(filters: {
     });
   }
 
-  const rows = await readingRepository.getAll(filters);
+  const nguoiDungId = await readingRepository.resolveNguoiDungIdByTaiKhoanId(filters.requestedByTaiKhoanId);
+  if (!nguoiDungId) {
+    return [];
+  }
+
+  const rows = await readingRepository.getAll({
+    nguoiDungId,
+    ...(filters.level ? { level: filters.level } : {}),
+    ...(filters.type ? { type: filters.type } : {}),
+    ...(filters.sourceType ? { sourceType: filters.sourceType } : {}),
+  });
   return rows.map((row) => mapExercise(row));
 }
 
-export async function getReadingExerciseById(id: number) {
+export async function getReadingExerciseById(id: number, requestedByTaiKhoanId: number) {
   if (!appConfig.db.enabled) {
     return inMemoryReadingExercises.get(id) ?? null;
   }
 
-  const row = await readingRepository.getById(id);
+  const nguoiDungId = await readingRepository.resolveNguoiDungIdByTaiKhoanId(requestedByTaiKhoanId);
+  if (!nguoiDungId) {
+    return null;
+  }
+
+  const row = await readingRepository.getById(id, nguoiDungId);
   return mapExercise(row);
 }
 
 export async function createReadingPassage(input: {
+  requestedByTaiKhoanId: number;
   title: string;
   content: string;
   partType: string;
   level?: string;
-  createdBy?: number;
+  sourceType?: string;
+  topic?: string;
+  description?: string;
+  rawAiPayload?: unknown;
 }) {
+  const nguoiDungId = await readingRepository.resolveNguoiDungIdByTaiKhoanId(input.requestedByTaiKhoanId);
+  if (!nguoiDungId) {
+    return null;
+  }
+
   const id = await readingRepository.createPassage({
     title: input.title,
     content: input.content,
     level: input.level ?? "Intermediate",
     partType: input.partType ?? "Part 6",
-    createdBy: input.createdBy ?? null,
+    nguoiDungId,
+    ...(input.sourceType ? { sourceType: input.sourceType } : {}),
+    ...(input.description ? { description: input.description } : {}),
+    ...(input.topic ? { topic: input.topic } : {}),
+    ...(input.rawAiPayload !== undefined ? { rawAiPayload: input.rawAiPayload } : {}),
   });
 
-  return getReadingExerciseById(id);
+  return getReadingExerciseById(id, input.requestedByTaiKhoanId);
 }
 
-export async function addReadingQuestions(exerciseId: number, questions: ReadingQuestionInput[]) {
-  const updated = await readingRepository.setQuestions(exerciseId, questions);
+export async function addReadingQuestions(
+  exerciseId: number,
+  questions: ReadingQuestionInput[],
+  requestedByTaiKhoanId: number,
+) {
+  const nguoiDungId = await readingRepository.resolveNguoiDungIdByTaiKhoanId(requestedByTaiKhoanId);
+  if (!nguoiDungId) {
+    return null;
+  }
+
+  const updated = await readingRepository.setQuestions(exerciseId, nguoiDungId, questions);
   if (!updated) {
     return null;
   }
 
-  return getReadingExerciseById(exerciseId);
+  return getReadingExerciseById(exerciseId, requestedByTaiKhoanId);
 }
 
 export async function createReadingWithAi(input: {
+  requestedByTaiKhoanId: number;
   title: string;
   content: string;
   type: string;
   level?: string;
   topic?: string;
-  createdBy?: number;
   provider?: string;
 }) {
   const type = (input.type || "Part 7") as "Part 5" | "Part 6" | "Part 7";
@@ -193,6 +443,7 @@ export async function createReadingWithAi(input: {
     topic: input.topic || input.title || "General",
     level,
     type,
+    requestedByTaiKhoanId: input.requestedByTaiKhoanId,
     provider: (input.provider as "gemini" | "openai" | "xai" | undefined) ?? "openai",
   });
 
@@ -203,6 +454,7 @@ export async function generateAiReading(input: {
   topic: string;
   level: "Beginner" | "Intermediate" | "Advanced";
   type: "Part 5" | "Part 6" | "Part 7";
+  requestedByTaiKhoanId?: number;
   provider?: "gemini" | "openai" | "xai";
 }) {
   const provider = normalizeProvider(input.provider);
@@ -220,9 +472,9 @@ export async function generateAiReading(input: {
     "Return JSON with title, content, and questions.",
   ].join("\n");
 
-  let generated: ReadingAiPayload;
+  let generated: unknown;
   try {
-    generated = await generateJsonFromProvider<ReadingAiPayload>({
+    generated = await generateJsonFromProvider<unknown>({
       provider,
       systemPrompt,
       userPrompt,
@@ -232,34 +484,34 @@ export async function generateAiReading(input: {
     return null;
   }
 
-  const title = String(generated?.title ?? "").trim();
-  const content = String(generated?.content ?? "").trim();
-  const rawQuestions = Array.isArray(generated?.questions) ? generated.questions : [];
+  const generatedRecord = asRecord(generated);
+  const title =
+    readStringFromKeys(generatedRecord, ["title", "Title", "name", "Name"]) ||
+    `${input.type} - ${input.topic}`;
+  const content =
+    readStringFromKeys(generatedRecord, ["content", "Content", "passage", "Passage", "text", "Text"]) ||
+    `Read the passage about ${input.topic} and answer the questions.`;
+  const rawQuestions = extractReadingQuestions(generated);
 
-  const aiQuestions: ReadingQuestionInput[] = rawQuestions.slice(0, expectedQuestionCount).map((q) => {
-    const options = Array.isArray(q.options) ? q.options.slice(0, 4).map((opt) => String(opt ?? "")) : [];
+  const aiQuestions: ReadingQuestionInput[] = rawQuestions
+    .slice(0, expectedQuestionCount)
+    .map((question, index) => buildReadingQuestionInput(question, index));
 
-    return {
-      questionText: String(q.questionText ?? "").trim(),
-      optionA: options[0] ?? "",
-      optionB: options[1] ?? "",
-      optionC: options[2] ?? "",
-      optionD: options[3] ?? "",
-      correctAnswer: Number(q.correctAnswer ?? 0),
-      explanation: String(q.explanation ?? "").trim(),
-    };
-  });
-
-  if (!title || !content || aiQuestions.length === 0) {
+  if (aiQuestions.length === 0) {
     return null;
   }
 
-  for (const question of aiQuestions) {
-    const validOptions = [question.optionA, question.optionB, question.optionC, question.optionD].every((x) => x.trim().length > 0);
-    const validAnswer = Number.isInteger(question.correctAnswer) && question.correctAnswer >= 0 && question.correctAnswer <= 3;
-
-    if (!question.questionText || !validOptions || !validAnswer) {
-      return null;
+  if (aiQuestions.length < expectedQuestionCount) {
+    for (let i = aiQuestions.length; i < expectedQuestionCount; i += 1) {
+      aiQuestions.push({
+        questionText: `Question ${i + 1}: What is the best answer according to the passage?`,
+        optionA: "Option A",
+        optionB: "Option B",
+        optionC: "Option C",
+        optionD: "Option D",
+        correctAnswer: 0,
+        explanation: "Dựa vào thông tin trong bài đọc để chọn đáp án đúng nhất.",
+      });
     }
   }
 
@@ -309,18 +561,30 @@ export async function generateAiReading(input: {
   }
 
   const created = await createReadingPassage({
+    requestedByTaiKhoanId: Number(input.requestedByTaiKhoanId ?? 0),
     title,
     content,
     partType: input.type,
     level: input.level,
+    sourceType: "ai",
+    topic: input.topic,
+    description: `Generated with ${provider}`,
+    rawAiPayload: generated,
   });
 
   if (!created) {
     return null;
   }
 
-  await addReadingQuestions(created.ExerciseId, aiQuestions);
-  const exercise = await getReadingExerciseById(created.ExerciseId);
+  await addReadingQuestions(
+    created.ExerciseId,
+    aiQuestions,
+    Number(input.requestedByTaiKhoanId ?? 0),
+  );
+  const exercise = await getReadingExerciseById(
+    created.ExerciseId,
+    Number(input.requestedByTaiKhoanId ?? 0),
+  );
   if (!exercise) {
     return null;
   }
@@ -333,7 +597,7 @@ export async function generateAiReading(input: {
 }
 
 export async function submitReadingResult(input: {
-  userId: number;
+  requestedByTaiKhoanId: number;
   exerciseId: number;
   answers: number[];
   completedAt?: string;
@@ -362,14 +626,14 @@ export async function submitReadingResult(input: {
     };
   }
 
-  const exercise = await readingRepository.getById(input.exerciseId);
-  if (!exercise) {
-    return { success: false, message: "Exercise not found" };
+  const nguoiDungId = await readingRepository.resolveNguoiDungIdByTaiKhoanId(input.requestedByTaiKhoanId);
+  if (!nguoiDungId) {
+    return { success: false, message: "User not found" };
   }
 
-  const userExists = await readingRepository.userExists(input.userId);
-  if (!userExists) {
-    return { success: false, message: "User not found" };
+  const exercise = await readingRepository.getById(input.exerciseId, nguoiDungId);
+  if (!exercise) {
+    return { success: false, message: "Exercise not found" };
   }
 
   const questions = parseQuestionsJson(exercise.questionsJson);
@@ -385,10 +649,18 @@ export async function submitReadingResult(input: {
   const score = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 10000) / 100 : 0;
 
   await readingRepository.addCompletion({
-    userId: input.userId,
+    nguoiDungId,
     exerciseId: input.exerciseId,
+    answers: input.answers,
+    questionDetails: questions.map((question) => ({
+      questionText: question.question,
+      options: question.options,
+      correctAnswerIndex: question.correctAnswer,
+      ...(question.explanation ? { explanation: question.explanation } : {}),
+    })),
     score,
     totalQuestions,
+    correctAnswers,
     completedAt: input.completedAt ? new Date(input.completedAt) : new Date(),
   });
 
@@ -402,11 +674,22 @@ export async function submitReadingResult(input: {
 
 export async function updateReadingExercise(
   id: number,
+  requestedByTaiKhoanId: number,
   input: { title: string; content: string; level: string; type: string; description?: string },
 ) {
-  return readingRepository.updateExercise(id, input);
+  const nguoiDungId = await readingRepository.resolveNguoiDungIdByTaiKhoanId(requestedByTaiKhoanId);
+  if (!nguoiDungId) {
+    return false;
+  }
+
+  return readingRepository.updateExercise(id, nguoiDungId, input);
 }
 
-export async function deleteReadingExercise(id: number) {
-  return readingRepository.remove(id);
+export async function deleteReadingExercise(id: number, requestedByTaiKhoanId: number) {
+  const nguoiDungId = await readingRepository.resolveNguoiDungIdByTaiKhoanId(requestedByTaiKhoanId);
+  if (!nguoiDungId) {
+    return false;
+  }
+
+  return readingRepository.remove(id, nguoiDungId);
 }

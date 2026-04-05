@@ -92,6 +92,7 @@ const SentenceWriting = () => {
       };
       
       toast.success("Đã tạo bài luyện viết thành công!");
+      let savedExerciseId: number | null = null;
       
       // Tự động lưu bài sentence writing vào database
       try {
@@ -106,6 +107,9 @@ const SentenceWriting = () => {
           description: `AI-generated sentence writing with ${normalizedData.sentences.length} sentences`,
           createdBy: user?.userId || 1
         };
+
+        const saveResponse = await sentenceWritingApi.saveSentenceWriting(saveRequest);
+        savedExerciseId = saveResponse.exerciseId ?? null;
         
       } catch (saveError) {
         console.error('⚠️ Failed to save sentence writing:', saveError);
@@ -117,7 +121,8 @@ const SentenceWriting = () => {
         state: {
           generatedData: normalizedData,
           topic: finalTopic,
-          level: formData.level
+          level: formData.level,
+          exerciseId: savedExerciseId,
         }
       });
     } catch (error: unknown) {

@@ -1,8 +1,12 @@
 import sql from "mssql";
 import { BaseRepository } from "./base-repository";
+import { getDbPool } from "../sqlserver/client";
+import { exerciseRepository } from "./exercise-repository";
 
 export interface ReadingExerciseRow {
   id: number;
+  nguoiDungId: number;
+  topic: string | null;
   title: string;
   content: string | null;
   level: string | null;
@@ -30,74 +34,93 @@ export interface ReadingQuestionInput {
 }
 
 export class ReadingExerciseRepository extends BaseRepository {
-  async getAll(filters: { level?: string; type?: string; sourceType?: string }): Promise<ReadingExerciseRow[]> {
+  async resolveNguoiDungIdByTaiKhoanId(taiKhoanId: number): Promise<number | null> {
+    return exerciseRepository.resolveNguoiDungIdByTaiKhoanId(taiKhoanId);
+  }
+
+  async getAll(filters: {
+    nguoiDungId: number;
+    level?: string;
+    type?: string;
+    sourceType?: string;
+  }): Promise<ReadingExerciseRow[]> {
     const request = await this.createRequest();
     const whereParts: string[] = [
-      "e.is_active = 1",
-      "e.type IN (N'Part 5', N'Part 6', N'Part 7')",
+      "bt.NguoiDungId = @nguoiDungId",
+      "bt.KieuBaiTap = N'reading'",
+      "bt.TrangThaiBaiTap = N'active'",
     ];
+    this.bindInput(request, "nguoiDungId", sql.Int, filters.nguoiDungId);
 
     if (filters.level) {
-      whereParts.push("e.level = @level");
+      whereParts.push("(bt.TrinhDo = @level OR JSON_VALUE(bt.NoiDungJson, '$.level') = @level)");
       this.bindInput(request, "level", sql.NVarChar(50), filters.level);
     }
     if (filters.type) {
-      whereParts.push("e.type = @type");
+      whereParts.push("JSON_VALUE(bt.NoiDungJson, '$.type') = @type");
       this.bindInput(request, "type", sql.NVarChar(50), filters.type);
     }
     if (filters.sourceType) {
-      whereParts.push("e.source_type = @sourceType");
+      whereParts.push("JSON_VALUE(bt.NoiDungJson, '$.sourceType') = @sourceType");
       this.bindInput(request, "sourceType", sql.NVarChar(100), filters.sourceType);
     }
 
     const result = await request.query<ReadingExerciseRow>(`
       SELECT
-        e.id,
-        e.title,
-        e.content,
-        e.level,
-        e.type,
-        e.source_type AS sourceType,
-        e.category,
-        e.estimated_minutes AS estimatedMinutes,
-        e.created_by AS createdBy,
-        e.description,
-        e.questions_json AS questionsJson,
-        e.correct_answers_json AS correctAnswersJson,
-        e.is_active AS isActive,
-        e.created_at AS createdAt,
-        e.updated_at AS updatedAt
-      FROM dbo.exercises e
+        bt.BaiTapAIId AS id,
+        bt.NguoiDungId AS nguoiDungId,
+        bt.ChuDeBaiTap AS topic,
+        JSON_VALUE(bt.NoiDungJson, '$.title') AS title,
+        JSON_VALUE(bt.NoiDungJson, '$.content') AS content,
+        COALESCE(bt.TrinhDo, JSON_VALUE(bt.NoiDungJson, '$.level')) AS level,
+        JSON_VALUE(bt.NoiDungJson, '$.type') AS type,
+        JSON_VALUE(bt.NoiDungJson, '$.sourceType') AS sourceType,
+        JSON_VALUE(bt.NoiDungJson, '$.category') AS category,
+        TRY_CONVERT(INT, JSON_VALUE(bt.NoiDungJson, '$.estimatedMinutes')) AS estimatedMinutes,
+        bt.NguoiDungId AS createdBy,
+        JSON_VALUE(bt.NoiDungJson, '$.description') AS description,
+        COALESCE(JSON_QUERY(bt.NoiDungJson, '$.questions'), N'[]') AS questionsJson,
+        COALESCE(JSON_QUERY(bt.NoiDungJson, '$.correctAnswers'), N'[]') AS correctAnswersJson,
+        CAST(CASE WHEN bt.TrangThaiBaiTap = N'active' THEN 1 ELSE 0 END AS BIT) AS isActive,
+        bt.NgayTao AS createdAt,
+        bt.NgayCapNhat AS updatedAt
+      FROM dbo.BaiTapAI bt
       WHERE ${whereParts.join(" AND ")}
-      ORDER BY e.created_at DESC
+      ORDER BY bt.NgayTao DESC
     `);
 
     return result.recordset;
   }
 
-  async getById(id: number): Promise<ReadingExerciseRow | null> {
+  async getById(id: number, nguoiDungId: number): Promise<ReadingExerciseRow | null> {
     const request = await this.createRequest();
     this.bindInput(request, "id", sql.Int, id);
+    this.bindInput(request, "nguoiDungId", sql.Int, nguoiDungId);
 
     const result = await request.query<ReadingExerciseRow>(`
       SELECT TOP (1)
-        e.id,
-        e.title,
-        e.content,
-        e.level,
-        e.type,
-        e.source_type AS sourceType,
-        e.category,
-        e.estimated_minutes AS estimatedMinutes,
-        e.created_by AS createdBy,
-        e.description,
-        e.questions_json AS questionsJson,
-        e.correct_answers_json AS correctAnswersJson,
-        e.is_active AS isActive,
-        e.created_at AS createdAt,
-        e.updated_at AS updatedAt
-      FROM dbo.exercises e
-      WHERE e.id = @id
+        bt.BaiTapAIId AS id,
+        bt.NguoiDungId AS nguoiDungId,
+        bt.ChuDeBaiTap AS topic,
+        JSON_VALUE(bt.NoiDungJson, '$.title') AS title,
+        JSON_VALUE(bt.NoiDungJson, '$.content') AS content,
+        COALESCE(bt.TrinhDo, JSON_VALUE(bt.NoiDungJson, '$.level')) AS level,
+        JSON_VALUE(bt.NoiDungJson, '$.type') AS type,
+        JSON_VALUE(bt.NoiDungJson, '$.sourceType') AS sourceType,
+        JSON_VALUE(bt.NoiDungJson, '$.category') AS category,
+        TRY_CONVERT(INT, JSON_VALUE(bt.NoiDungJson, '$.estimatedMinutes')) AS estimatedMinutes,
+        bt.NguoiDungId AS createdBy,
+        JSON_VALUE(bt.NoiDungJson, '$.description') AS description,
+        COALESCE(JSON_QUERY(bt.NoiDungJson, '$.questions'), N'[]') AS questionsJson,
+        COALESCE(JSON_QUERY(bt.NoiDungJson, '$.correctAnswers'), N'[]') AS correctAnswersJson,
+        CAST(CASE WHEN bt.TrangThaiBaiTap = N'active' THEN 1 ELSE 0 END AS BIT) AS isActive,
+        bt.NgayTao AS createdAt,
+        bt.NgayCapNhat AS updatedAt
+      FROM dbo.BaiTapAI bt
+      WHERE bt.BaiTapAIId = @id
+        AND bt.NguoiDungId = @nguoiDungId
+        AND bt.KieuBaiTap = N'reading'
+        AND bt.TrangThaiBaiTap = N'active'
     `);
 
     return result.recordset[0] ?? null;
@@ -108,57 +131,81 @@ export class ReadingExerciseRepository extends BaseRepository {
     content: string;
     level: string;
     partType: string;
-    createdBy: number | null;
+    nguoiDungId: number;
+    sourceType?: string;
+    description?: string;
+    topic?: string;
+    rawAiPayload?: unknown;
   }): Promise<number> {
     const request = await this.createRequest();
-    this.bindInput(request, "title", sql.NVarChar(200), input.title);
-    this.bindInput(request, "content", sql.NVarChar(sql.MAX), input.content);
-    this.bindInput(request, "level", sql.NVarChar(50), input.level);
-    this.bindInput(request, "partType", sql.NVarChar(50), input.partType);
-    this.bindInput(request, "createdBy", sql.Int, input.createdBy);
+    this.bindInput(request, "nguoiDungId", sql.Int, input.nguoiDungId);
+    this.bindInput(request, "topic", sql.NVarChar(200), input.topic ?? input.title);
+    this.bindInput(request, "level", sql.NVarChar(20), input.level);
+
+    const payload = {
+      title: input.title,
+      content: input.content,
+      level: input.level,
+      type: input.partType,
+      sourceType: input.sourceType ?? "manual",
+      category: input.topic ?? "General",
+      estimatedMinutes: input.partType === "Part 6" ? 20 : 30,
+      description: input.description ?? "",
+      questions: [] as Array<unknown>,
+      correctAnswers: [] as Array<unknown>,
+      ...(input.rawAiPayload !== undefined ? { rawAiPayload: input.rawAiPayload } : {}),
+    };
+    this.bindInput(request, "noiDungJson", sql.NVarChar(sql.MAX), JSON.stringify(payload));
 
     const result = await request.query<{ id: number }>(`
-      INSERT INTO dbo.exercises (
-        title,
-        content,
-        questions_json,
-        correct_answers_json,
-        level,
-        type,
-        category,
-        estimated_minutes,
-        source_type,
-        created_by,
-        description,
-        is_active,
-        created_at,
-        updated_at
+      INSERT INTO dbo.BaiTapAI (
+        NguoiDungId,
+        KieuBaiTap,
+        ChuDeBaiTap,
+        TrinhDo,
+        NoiDungJson,
+        TrangThaiBaiTap,
+        NgayCapNhat
       )
-      OUTPUT INSERTED.id
+      OUTPUT INSERTED.BaiTapAIId AS id
       VALUES (
-        @title,
-        @content,
-        N'[]',
-        N'[]',
+        @nguoiDungId,
+        N'reading',
+        @topic,
         @level,
-        @partType,
-        N'General',
-        CASE WHEN @partType = N'Part 6' THEN 20 ELSE 30 END,
-        N'manual',
-        @createdBy,
-        N'',
-        0,
-        SYSUTCDATETIME(),
-        SYSUTCDATETIME()
+        @noiDungJson,
+        N'active',
+        SYSDATETIME()
       )
     `);
 
     return result.recordset[0]?.id ?? 0;
   }
 
-  async setQuestions(exerciseId: number, questions: ReadingQuestionInput[]): Promise<boolean> {
+  async setQuestions(
+    exerciseId: number,
+    nguoiDungId: number,
+    questions: ReadingQuestionInput[],
+  ): Promise<boolean> {
     const request = await this.createRequest();
     this.bindInput(request, "exerciseId", sql.Int, exerciseId);
+    this.bindInput(request, "nguoiDungId", sql.Int, nguoiDungId);
+
+    const currentResult = await request.query<{ noiDungJson: string }>(`
+      SELECT TOP (1) bt.NoiDungJson AS noiDungJson
+      FROM dbo.BaiTapAI bt
+      WHERE bt.BaiTapAIId = @exerciseId
+        AND bt.NguoiDungId = @nguoiDungId
+        AND bt.KieuBaiTap = N'reading'
+        AND bt.TrangThaiBaiTap = N'active'
+    `);
+
+    const currentJson = currentResult.recordset[0]?.noiDungJson;
+    if (!currentJson) {
+      return false;
+    }
+
+    const payload = JSON.parse(currentJson) as Record<string, unknown>;
 
     const normalized = questions.map((q, index) => ({
       questionText: q.questionText,
@@ -168,21 +215,18 @@ export class ReadingExerciseRepository extends BaseRepository {
       orderNumber: index + 1,
     }));
 
-    this.bindInput(request, "questionsJson", sql.NVarChar(sql.MAX), JSON.stringify(normalized));
-    this.bindInput(
-      request,
-      "correctAnswersJson",
-      sql.NVarChar(sql.MAX),
-      JSON.stringify(normalized.map((q) => q.correctAnswer)),
-    );
+    payload.questions = normalized;
+    payload.correctAnswers = normalized.map((q) => q.correctAnswer);
+    this.bindInput(request, "noiDungJson", sql.NVarChar(sql.MAX), JSON.stringify(payload));
 
     const result = await request.query(`
-      UPDATE dbo.exercises
-      SET questions_json = @questionsJson,
-          correct_answers_json = @correctAnswersJson,
-          is_active = 1,
-          updated_at = SYSUTCDATETIME()
-      WHERE id = @exerciseId
+      UPDATE dbo.BaiTapAI
+      SET NoiDungJson = @noiDungJson,
+          NgayCapNhat = SYSDATETIME()
+      WHERE BaiTapAIId = @exerciseId
+        AND NguoiDungId = @nguoiDungId
+        AND KieuBaiTap = N'reading'
+        AND TrangThaiBaiTap = N'active'
     `);
 
     return (result.rowsAffected[0] ?? 0) > 0;
@@ -190,102 +234,231 @@ export class ReadingExerciseRepository extends BaseRepository {
 
   async updateExercise(
     id: number,
+    nguoiDungId: number,
     input: { title: string; content: string; level: string; type: string; description?: string },
   ): Promise<boolean> {
     const request = await this.createRequest();
     this.bindInput(request, "id", sql.Int, id);
-    this.bindInput(request, "title", sql.NVarChar(200), input.title);
-    this.bindInput(request, "content", sql.NVarChar(sql.MAX), input.content);
-    this.bindInput(request, "level", sql.NVarChar(50), input.level);
-    this.bindInput(request, "type", sql.NVarChar(50), input.type);
-    this.bindInput(request, "description", sql.NVarChar(500), input.description ?? "");
+    this.bindInput(request, "nguoiDungId", sql.Int, nguoiDungId);
+
+    const currentResult = await request.query<{ noiDungJson: string }>(`
+      SELECT TOP (1) bt.NoiDungJson AS noiDungJson
+      FROM dbo.BaiTapAI bt
+      WHERE bt.BaiTapAIId = @id
+        AND bt.NguoiDungId = @nguoiDungId
+        AND bt.KieuBaiTap = N'reading'
+        AND bt.TrangThaiBaiTap = N'active'
+    `);
+
+    const currentJson = currentResult.recordset[0]?.noiDungJson;
+    if (!currentJson) {
+      return false;
+    }
+
+    const payload = JSON.parse(currentJson) as Record<string, unknown>;
+    payload.title = input.title;
+    payload.content = input.content;
+    payload.level = input.level;
+    payload.type = input.type;
+    payload.description = input.description ?? "";
+
+    this.bindInput(request, "level", sql.NVarChar(20), input.level);
+    this.bindInput(request, "topic", sql.NVarChar(200), input.title);
+    this.bindInput(request, "noiDungJson", sql.NVarChar(sql.MAX), JSON.stringify(payload));
 
     const result = await request.query(`
-      UPDATE dbo.exercises
-      SET title = @title,
-          content = @content,
-          level = @level,
-          type = @type,
-          description = @description,
-          updated_at = SYSUTCDATETIME()
-      WHERE id = @id
+      UPDATE dbo.BaiTapAI
+      SET ChuDeBaiTap = @topic,
+          TrinhDo = @level,
+          NoiDungJson = @noiDungJson,
+          NgayCapNhat = SYSDATETIME()
+      WHERE BaiTapAIId = @id
+        AND NguoiDungId = @nguoiDungId
+        AND KieuBaiTap = N'reading'
+        AND TrangThaiBaiTap = N'active'
     `);
 
     return (result.rowsAffected[0] ?? 0) > 0;
   }
 
-  async remove(id: number): Promise<boolean> {
+  async remove(id: number, nguoiDungId: number): Promise<boolean> {
     const request = await this.createRequest();
     this.bindInput(request, "id", sql.Int, id);
-    const result = await request.query(`DELETE FROM dbo.exercises WHERE id = @id`);
-    return (result.rowsAffected[0] ?? 0) > 0;
-  }
-
-  async userExists(userId: number): Promise<boolean> {
-    const request = await this.createRequest();
-    this.bindInput(request, "userId", sql.Int, userId);
-    const result = await request.query<{ count: number }>(`
-      SELECT COUNT(1) AS count
-      FROM dbo.users
-      WHERE id = @userId
+    this.bindInput(request, "nguoiDungId", sql.Int, nguoiDungId);
+    const result = await request.query(`
+      UPDATE dbo.BaiTapAI
+      SET TrangThaiBaiTap = N'archived',
+          NgayCapNhat = SYSDATETIME()
+      WHERE BaiTapAIId = @id
+        AND NguoiDungId = @nguoiDungId
+        AND KieuBaiTap = N'reading'
+        AND TrangThaiBaiTap = N'active'
     `);
-    return (result.recordset[0]?.count ?? 0) > 0;
+    return (result.rowsAffected[0] ?? 0) > 0;
   }
 
   async addCompletion(input: {
-    userId: number;
+    nguoiDungId: number;
     exerciseId: number;
+    answers: number[];
+    questionDetails: Array<{
+      questionText: string;
+      options: string[];
+      correctAnswerIndex: number;
+      explanation?: string;
+    }>;
     score: number;
     totalQuestions: number;
+    correctAnswers: number;
     completedAt: Date;
   }): Promise<number> {
-    const request = await this.createRequest();
-    this.bindInput(request, "userId", sql.Int, input.userId);
-    this.bindInput(request, "exerciseId", sql.Int, input.exerciseId);
-    this.bindInput(request, "score", sql.Decimal(5, 2), input.score);
-    this.bindInput(request, "totalQuestions", sql.Int, input.totalQuestions);
-    this.bindInput(request, "completedAt", sql.DateTime2(3), input.completedAt);
+    const pool = await getDbPool();
+    const transaction = new sql.Transaction(pool);
 
-    const attemptResult = await request.query<{ nextAttempt: number }>(`
-      SELECT ISNULL(MAX(attempts), 0) + 1 AS nextAttempt
-      FROM dbo.exercise_completions
-      WHERE user_id = @userId
-        AND exercise_id = @exerciseId
-    `);
+    try {
+      await transaction.begin();
 
-    const nextAttempt = attemptResult.recordset[0]?.nextAttempt ?? 1;
-    this.bindInput(request, "attempts", sql.Int, nextAttempt);
+      const attemptRequest = new sql.Request(transaction);
+      this.bindInput(attemptRequest, "nguoiDungId", sql.Int, input.nguoiDungId);
+      this.bindInput(attemptRequest, "exerciseId", sql.Int, input.exerciseId);
 
-    const result = await request.query<{ id: number }>(`
-      INSERT INTO dbo.exercise_completions (
-        user_id,
-        exercise_id,
-        user_answers_json,
-        score,
-        total_questions,
-        started_at,
-        completed_at,
-        is_completed,
-        time_spent_minutes,
-        attempts,
-        created_at
-      )
-      OUTPUT INSERTED.id
-      VALUES (
-        @userId,
-        @exerciseId,
-        N'[]',
-        @score,
-        @totalQuestions,
-        DATEADD(MINUTE, -1, @completedAt),
-        @completedAt,
-        1,
-        1,
-        @attempts,
-        SYSUTCDATETIME()
-      )
-    `);
+      const attemptResult = await attemptRequest.query<{ nextAttempt: number }>(`
+        SELECT ISNULL(MAX(LanThu), 0) + 1 AS nextAttempt
+        FROM dbo.BaiLamBaiTapAI
+        WHERE NguoiDungId = @nguoiDungId
+          AND BaiTapAIId = @exerciseId
+      `);
 
-    return result.recordset[0]?.id ?? 0;
+      const nextAttempt = attemptResult.recordset[0]?.nextAttempt ?? 1;
+
+      const answeredDetails = input.questionDetails.map((question, index) => {
+        const selectedIndex = input.answers?.[index] ?? -1;
+        const selectedText = selectedIndex >= 0 ? question.options[selectedIndex] ?? null : null;
+        const correctText = question.options[question.correctAnswerIndex] ?? null;
+        const isCorrect = selectedIndex === question.correctAnswerIndex;
+        const scorePerQuestion =
+          input.totalQuestions > 0 && isCorrect
+            ? Math.round((10000 / input.totalQuestions)) / 100
+            : 0;
+
+        return {
+          questionOrder: index + 1,
+          selectedText,
+          correctText,
+          isCorrect,
+          scorePerQuestion,
+          note: question.explanation ?? "",
+          questionType: "reading",
+        };
+      });
+
+      const summaryJson = {
+        totalQuestions: input.totalQuestions,
+        correctAnswers: input.correctAnswers,
+        incorrectAnswers: Math.max(0, input.totalQuestions - input.correctAnswers),
+        score: input.score,
+        submittedAt: input.completedAt.toISOString(),
+      };
+
+      const answerJson = {
+        answers: input.answers,
+      };
+
+      const headerRequest = new sql.Request(transaction);
+      this.bindInput(headerRequest, "exerciseId", sql.Int, input.exerciseId);
+      this.bindInput(headerRequest, "nguoiDungId", sql.Int, input.nguoiDungId);
+      this.bindInput(headerRequest, "lanThu", sql.Int, nextAttempt);
+      this.bindInput(headerRequest, "cauTraLoiJson", sql.NVarChar(sql.MAX), JSON.stringify(answerJson));
+      this.bindInput(headerRequest, "ketQuaChamJson", sql.NVarChar(sql.MAX), JSON.stringify(summaryJson));
+      this.bindInput(headerRequest, "diemSo", sql.Decimal(5, 2), input.score);
+      this.bindInput(headerRequest, "tongSoCau", sql.Int, input.totalQuestions);
+      this.bindInput(headerRequest, "soCauDung", sql.Int, input.correctAnswers);
+      this.bindInput(headerRequest, "soCauSai", sql.Int, Math.max(0, input.totalQuestions - input.correctAnswers));
+      this.bindInput(headerRequest, "thoiGianBatDau", sql.DateTime2(0), new Date(input.completedAt.getTime() - 60 * 1000));
+      this.bindInput(headerRequest, "thoiGianHoanThanh", sql.DateTime2(0), input.completedAt);
+
+      const headerResult = await headerRequest.query<{ id: number }>(`
+        INSERT INTO dbo.BaiLamBaiTapAI (
+          BaiTapAIId,
+          NguoiDungId,
+          LanThu,
+          CauTraLoiJson,
+          KetQuaChamJson,
+          DiemSo,
+          TongSoCau,
+          SoCauDung,
+          SoCauSai,
+          ThoiGianBatDau,
+          ThoiGianHoanThanh,
+          ThoiGianLamPhut,
+          TrangThaiBaiLam,
+          NhanXetAI
+        )
+        OUTPUT INSERTED.BaiLamBaiTapAIId AS id
+        VALUES (
+          @exerciseId,
+          @nguoiDungId,
+          @lanThu,
+          @cauTraLoiJson,
+          @ketQuaChamJson,
+          @diemSo,
+          @tongSoCau,
+          @soCauDung,
+          @soCauSai,
+          @thoiGianBatDau,
+          @thoiGianHoanThanh,
+          1,
+          N'graded',
+          N'Auto graded'
+        )
+      `);
+
+      const baiLamId = headerResult.recordset[0]?.id ?? 0;
+
+      for (const detail of answeredDetails) {
+        const detailRequest = new sql.Request(transaction);
+        this.bindInput(detailRequest, "baiLamId", sql.Int, baiLamId);
+        this.bindInput(detailRequest, "questionOrder", sql.Int, detail.questionOrder);
+        this.bindInput(detailRequest, "questionType", sql.NVarChar(50), detail.questionType);
+        this.bindInput(detailRequest, "userAnswer", sql.NVarChar(sql.MAX), detail.selectedText);
+        this.bindInput(detailRequest, "correctAnswer", sql.NVarChar(sql.MAX), detail.correctText);
+        this.bindInput(detailRequest, "isCorrect", sql.Bit, detail.isCorrect);
+        this.bindInput(detailRequest, "score", sql.Decimal(5, 2), detail.scorePerQuestion);
+        this.bindInput(detailRequest, "ghiChuAI", sql.NVarChar(sql.MAX), detail.note);
+
+        await detailRequest.query(`
+          INSERT INTO dbo.ChiTietChamBaiBaiTapAI (
+            BaiLamBaiTapAIId,
+            SoThuTuCauHoi,
+            KieuCauHoi,
+            CauTraLoiNguoiDung,
+            DapAnDung,
+            DungSai,
+            Diem,
+            GhiChuAI
+          )
+          VALUES (
+            @baiLamId,
+            @questionOrder,
+            @questionType,
+            @userAnswer,
+            @correctAnswer,
+            @isCorrect,
+            @score,
+            @ghiChuAI
+          )
+        `);
+      }
+
+      await transaction.commit();
+      return baiLamId;
+    } catch (error) {
+      try {
+        await transaction.rollback();
+      } catch {
+        // Ignore rollback errors when transaction is already finalized.
+      }
+      throw error;
+    }
   }
 }

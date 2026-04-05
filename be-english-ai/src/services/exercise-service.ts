@@ -13,6 +13,23 @@ type SentenceWritingItem = {
   correctAnswer: string;
 };
 
+type StoredGrammarQuestion = {
+  q?: string;
+  question?: string;
+  options?: string[];
+};
+
+type StoredSentenceWritingQuestion = {
+  id?: number;
+  vietnamese?: string;
+  correctAnswer?: string;
+};
+
+type SentenceWritingUserAnswer = {
+  sentenceId?: number;
+  userTranslation: string;
+};
+
 function optionIndexToLetter(index: number): string {
   if (!Number.isInteger(index) || index < 0 || index > 25) {
     return "A";
@@ -20,7 +37,34 @@ function optionIndexToLetter(index: number): string {
   return String.fromCharCode(65 + index);
 }
 
+function normalizeText(input: string | null | undefined): string {
+  if (!input) {
+    return "";
+  }
+
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/\.+$/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function letterToIndex(letter: string): number {
+  const token = letter.trim().toUpperCase();
+  if (token.length !== 1) {
+    return -1;
+  }
+
+  const code = token.charCodeAt(0);
+  if (code < 65 || code > 90) {
+    return -1;
+  }
+
+  return code - 65;
+}
+
 export async function saveAiExercise(input: {
+  requestedByTaiKhoanId: number;
   title: string;
   topic: string;
   content?: string;
@@ -31,7 +75,6 @@ export async function saveAiExercise(input: {
   estimatedMinutes?: number;
   timeLimit?: number;
   description?: string;
-  createdBy?: number;
 }) {
   if (!input.questions || input.questions.length === 0) {
     return { success: false, message: "Invalid exercise data" };
@@ -53,7 +96,9 @@ export async function saveAiExercise(input: {
   );
 
   const exerciseId = await exerciseRepository.save({
+    requestedByTaiKhoanId: input.requestedByTaiKhoanId,
     title: input.title,
+    topic: input.topic,
     content: input.content ?? null,
     questionsJson,
     correctAnswersJson,
@@ -64,8 +109,11 @@ export async function saveAiExercise(input: {
     timeLimit: input.timeLimit ?? 600,
     description: input.description ?? null,
     sourceType: "ai_generated",
-    createdBy: input.createdBy ?? 1,
   });
+
+  if (!exerciseId) {
+    return { success: false, message: "Unable to save exercise" };
+  }
 
   return {
     success: true,
@@ -75,6 +123,7 @@ export async function saveAiExercise(input: {
 }
 
 export async function saveSentenceWritingExercise(input: {
+  requestedByTaiKhoanId: number;
   title: string;
   topic: string;
   content?: string;
@@ -84,7 +133,6 @@ export async function saveSentenceWritingExercise(input: {
   estimatedMinutes?: number;
   timeLimit?: number;
   description?: string;
-  createdBy?: number;
 }) {
   if (!input.sentences || input.sentences.length === 0) {
     return { success: false, message: "Invalid sentence writing data" };
@@ -98,31 +146,265 @@ export async function saveSentenceWritingExercise(input: {
     };
   }
 
-  const questionsJson = JSON.stringify(
-    input.sentences.map((s) => ({ q: s.vietnamese, options: [] as string[] })),
-  );
-  const correctAnswersJson = JSON.stringify(
-    input.sentences.map((s) => s.correctAnswer),
+  const sentencesJson = JSON.stringify(
+    input.sentences.map((s) => ({
+      id: s.id,
+      vietnamese: s.vietnamese,
+      correctAnswer: s.correctAnswer,
+    })),
   );
 
-  const exerciseId = await exerciseRepository.save({
+  const exerciseId = await exerciseRepository.saveSentenceWriting({
+    requestedByTaiKhoanId: input.requestedByTaiKhoanId,
     title: input.title,
+    topic: input.topic,
     content: input.content ?? null,
-    questionsJson,
-    correctAnswersJson,
+    sentencesJson,
     level: input.level ?? "Intermediate",
-    type: "sentence_writing",
     category: input.category ?? input.topic,
     estimatedMinutes: input.estimatedMinutes ?? 15,
     timeLimit: input.timeLimit ?? 900,
     description: input.description ?? null,
-    sourceType: "ai_generated_writing",
-    createdBy: input.createdBy ?? 1,
   });
+
+  if (!exerciseId) {
+    return { success: false, message: "Unable to save sentence writing exercise" };
+  }
 
   return {
     success: true,
     message: "Sentence writing exercise saved successfully",
     exerciseId,
+  };
+}
+
+export async function submitAiExerciseResult(input: {
+  requestedByTaiKhoanId: number;
+  exerciseId: number;
+  answers: string[];
+  completedAt?: string;
+}) {
+  if (!Number.isInteger(input.exerciseId) || input.exerciseId <= 0) {
+    return { success: false, message: "Invalid exercise id" };
+  }
+
+  if (!Array.isArray(input.answers) || input.answers.length === 0) {
+    return { success: false, message: "Invalid answers" };
+  }
+
+  if (!appConfig.db.enabled) {
+    return {
+      success: true,
+      message: "Exercise submitted successfully (no-db mode)",
+      score: 0,
+      totalQuestions: input.answers.length,
+      correctAnswers: 0,
+      incorrectAnswers: input.answers.length,
+    };
+  }
+
+  const nguoiDungId = await exerciseRepository.resolveNguoiDungIdByTaiKhoanId(input.requestedByTaiKhoanId);
+  if (!nguoiDungId) {
+    return { success: false, message: "User not found" };
+  }
+
+  const exercise = await exerciseRepository.getExerciseById(input.exerciseId, nguoiDungId);
+  if (!exercise || exercise.kieuBaiTap !== "grammar") {
+    return { success: false, message: "Exercise not found" };
+  }
+
+  const payload = JSON.parse(exercise.noiDungJson) as {
+    questions?: StoredGrammarQuestion[];
+    correctAnswers?: string[];
+  };
+
+  const questions = Array.isArray(payload.questions) ? payload.questions : [];
+  const correctAnswers = Array.isArray(payload.correctAnswers) ? payload.correctAnswers : [];
+
+  if (questions.length === 0 || correctAnswers.length === 0) {
+    return { success: false, message: "Exercise data is invalid" };
+  }
+
+  const totalQuestions = questions.length;
+  const details = questions.map((question, index) => {
+    const options = Array.isArray(question.options) ? question.options : [];
+    const userAnswer = String(input.answers[index] ?? "").trim();
+    const correctLetter = String(correctAnswers[index] ?? "").trim().toUpperCase();
+    const correctIndex = letterToIndex(correctLetter);
+    const correctOption = correctIndex >= 0 ? String(options[correctIndex] ?? "").trim() : "";
+
+    const isCorrect = correctOption
+      ? normalizeText(userAnswer) === normalizeText(correctOption)
+      : userAnswer.trim().toUpperCase() === correctLetter;
+
+    return {
+      questionOrder: index + 1,
+      questionType: "grammar",
+      userAnswer: userAnswer || null,
+      correctAnswer: (correctOption || correctLetter || null),
+      isCorrect,
+      scorePerQuestion:
+        totalQuestions > 0 && isCorrect
+          ? Math.round((10000 / totalQuestions)) / 100
+          : 0,
+      note: String(question.q ?? question.question ?? ""),
+    };
+  });
+
+  const correctCount = details.reduce((sum, detail) => sum + (detail.isCorrect ? 1 : 0), 0);
+  const incorrectCount = Math.max(0, totalQuestions - correctCount);
+  const score = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 10000) / 100 : 0;
+  const completedAt = input.completedAt ? new Date(input.completedAt) : new Date();
+
+  const resultJson = {
+    totalQuestions,
+    correctAnswers: correctCount,
+    incorrectAnswers: incorrectCount,
+    score,
+    submittedAt: completedAt.toISOString(),
+  };
+
+  await exerciseRepository.addCompletion({
+    nguoiDungId,
+    exerciseId: input.exerciseId,
+    answersJson: { answers: input.answers },
+    resultJson,
+    score,
+    totalQuestions,
+    correctAnswers: correctCount,
+    completedAt,
+    details,
+  });
+
+  return {
+    success: true,
+    message: "Exercise submitted successfully",
+    score,
+    totalQuestions,
+    correctAnswers: correctCount,
+    incorrectAnswers: incorrectCount,
+  };
+}
+
+export async function submitSentenceWritingResult(input: {
+  requestedByTaiKhoanId: number;
+  exerciseId: number;
+  answers: SentenceWritingUserAnswer[];
+  completedAt?: string;
+}) {
+  if (!Number.isInteger(input.exerciseId) || input.exerciseId <= 0) {
+    return { success: false, message: "Invalid exercise id" };
+  }
+
+  if (!Array.isArray(input.answers) || input.answers.length === 0) {
+    return { success: false, message: "Invalid answers" };
+  }
+
+  if (!appConfig.db.enabled) {
+    return {
+      success: true,
+      message: "Sentence writing submitted successfully (no-db mode)",
+      score: 0,
+      totalQuestions: input.answers.length,
+      correctAnswers: 0,
+      incorrectAnswers: input.answers.length,
+      reviews: [],
+    };
+  }
+
+  const nguoiDungId = await exerciseRepository.resolveNguoiDungIdByTaiKhoanId(input.requestedByTaiKhoanId);
+  if (!nguoiDungId) {
+    return { success: false, message: "User not found" };
+  }
+
+  const exercise = await exerciseRepository.getExerciseById(input.exerciseId, nguoiDungId);
+  if (!exercise || exercise.kieuBaiTap !== "writing") {
+    return { success: false, message: "Exercise not found" };
+  }
+
+  const payload = JSON.parse(exercise.noiDungJson) as {
+    sentences?: StoredSentenceWritingQuestion[];
+  };
+  const sentences = Array.isArray(payload.sentences) ? payload.sentences : [];
+
+  if (sentences.length === 0) {
+    return { success: false, message: "Exercise data is invalid" };
+  }
+
+  const bySentenceId = new Map<number, SentenceWritingUserAnswer>();
+  for (const answer of input.answers) {
+    if (Number.isInteger(answer.sentenceId) && (answer.sentenceId ?? 0) > 0) {
+      bySentenceId.set(Number(answer.sentenceId), answer);
+    }
+  }
+
+  const totalQuestions = sentences.length;
+  const details = sentences.map((sentence, index) => {
+    const fromId = Number.isInteger(sentence.id) ? bySentenceId.get(Number(sentence.id)) : undefined;
+    const fallback = input.answers[index];
+    const answer = fromId ?? fallback;
+
+    const userAnswer = String(answer?.userTranslation ?? "").trim();
+    const correctAnswer = String(sentence.correctAnswer ?? "").trim();
+    const isCorrect = normalizeText(userAnswer) === normalizeText(correctAnswer) && normalizeText(correctAnswer) !== "";
+
+    return {
+      questionOrder: index + 1,
+      questionType: "sentence_writing",
+      userAnswer: userAnswer || null,
+      correctAnswer: correctAnswer || null,
+      isCorrect,
+      scorePerQuestion:
+        totalQuestions > 0 && isCorrect
+          ? Math.round((10000 / totalQuestions)) / 100
+          : 0,
+      note: String(sentence.vietnamese ?? ""),
+      sentenceId: Number(sentence.id ?? index + 1),
+      vietnamese: String(sentence.vietnamese ?? ""),
+    };
+  });
+
+  const correctCount = details.reduce((sum, detail) => sum + (detail.isCorrect ? 1 : 0), 0);
+  const incorrectCount = Math.max(0, totalQuestions - correctCount);
+  const score = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 10000) / 100 : 0;
+  const completedAt = input.completedAt ? new Date(input.completedAt) : new Date();
+
+  const resultJson = {
+    totalQuestions,
+    correctAnswers: correctCount,
+    incorrectAnswers: incorrectCount,
+    score,
+    submittedAt: completedAt.toISOString(),
+  };
+
+  await exerciseRepository.addCompletion({
+    nguoiDungId,
+    exerciseId: input.exerciseId,
+    answersJson: {
+      answers: input.answers,
+    },
+    resultJson,
+    score,
+    totalQuestions,
+    correctAnswers: correctCount,
+    completedAt,
+    details,
+  });
+
+  return {
+    success: true,
+    message: "Sentence writing submitted successfully",
+    score,
+    totalQuestions,
+    correctAnswers: correctCount,
+    incorrectAnswers: incorrectCount,
+    reviews: details.map((detail) => ({
+      sentenceId: detail.sentenceId,
+      vietnamese: detail.vietnamese,
+      userAnswer: detail.userAnswer ?? "",
+      correctAnswer: detail.correctAnswer ?? "",
+      isCorrect: detail.isCorrect,
+      score: detail.scorePerQuestion,
+    })),
   };
 }

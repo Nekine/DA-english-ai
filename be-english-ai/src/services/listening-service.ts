@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { generateJsonFromProvider, type AiProvider } from "./ai/ai-client";
 import { loadPromptTemplate } from "./ai/prompt-loader";
+import { appConfig } from "../config";
+import { exerciseRepository } from "../database/repositories/exercise-repository";
 import { logger } from "../utils/logger";
 
 type ListeningQuestion = {
@@ -21,6 +23,31 @@ type ListeningAiPayload = {
   title?: string;
   transcript?: string;
   questions?: ListeningQuestionAiPayload[];
+};
+
+type StoredListeningQuestionPayload = {
+  Question?: string;
+  question?: string;
+  Options?: string[];
+  options?: string[];
+  RightOptionIndex?: number;
+  rightOptionIndex?: number;
+  ExplanationInVietnamese?: string;
+  explanationInVietnamese?: string;
+};
+
+type StoredListeningPayload = {
+  title?: string;
+  topic?: string;
+  transcript?: string;
+  questions?: StoredListeningQuestionPayload[];
+  englishLevel?: number;
+  genre?: string;
+  totalQuestions?: number;
+  audioContent?: string | null;
+  audioFilePath?: string | null;
+  createdAt?: string;
+  expiresAt?: string;
 };
 
 const MIN_TRANSCRIPT_WORDS = 160;
@@ -122,6 +149,44 @@ function resolveCorrectAnswerIndex(record: Record<string, unknown>, options: str
   }
 
   return 0;
+}
+
+function normalizeEnglishLevel(level: number): number {
+  if (!Number.isInteger(level)) {
+    return 1;
+  }
+
+  return Math.max(1, Math.min(6, level));
+}
+
+function mapEnglishLevelToCefr(level: number): string {
+  const normalized = normalizeEnglishLevel(level);
+  switch (normalized) {
+    case 1:
+      return "A1";
+    case 2:
+      return "A2";
+    case 3:
+      return "B1";
+    case 4:
+      return "B2";
+    case 5:
+      return "C1";
+    case 6:
+      return "C2";
+    default:
+      return "A1";
+  }
+}
+
+function buildFallbackAudioUrl(transcript: string): string | null {
+  const normalized = transcript.trim().replace(/\s+/g, " ");
+  if (!normalized) {
+    return null;
+  }
+
+  const preview = normalized.slice(0, 200);
+  return `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&q=${encodeURIComponent(preview)}`;
 }
 
 function countWords(value: string): number {
@@ -275,6 +340,90 @@ export function getListeningGenres() {
   return genreMap;
 }
 
+function parseJson<T>(raw: string): T | null {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeStoredListeningQuestion(raw: unknown): ListeningQuestion | null {
+  const record = asRecord(raw);
+  if (!record) {
+    return null;
+  }
+
+  const question = readFirstString(record, ["Question", "question", "text", "Text"]);
+  if (!question) {
+    return null;
+  }
+
+  const rawOptions = readFirstArray(record, ["Options", "options", "choices", "Choices"]);
+  const options = rawOptions
+    .map((option) => String(option ?? "").trim())
+    .filter((option) => option.length > 0)
+    .slice(0, 4);
+
+  if (options.length < 2) {
+    return null;
+  }
+
+  while (options.length < 4) {
+    options.push(`Option ${String.fromCharCode(65 + options.length)}`);
+  }
+
+  const rightOptionIndex = resolveCorrectAnswerIndex(record, options);
+  const explanation =
+    readFirstString(record, [
+      "ExplanationInVietnamese",
+      "explanationInVietnamese",
+      "Explanation",
+      "explanation",
+    ]) || "";
+
+  return {
+    Question: question,
+    Options: options,
+    RightOptionIndex: rightOptionIndex,
+    ExplanationInVietnamese: explanation,
+  };
+}
+
+function parseStoredListeningExercise(exerciseId: string, rawPayload: string): ListeningExercise | null {
+  const payload = parseJson<StoredListeningPayload>(rawPayload);
+  if (!payload) {
+    return null;
+  }
+
+  const questions = (Array.isArray(payload.questions) ? payload.questions : [])
+    .map((question) => normalizeStoredListeningQuestion(question))
+    .filter((question): question is ListeningQuestion => Boolean(question));
+
+  if (questions.length === 0) {
+    return null;
+  }
+
+  const createdAt = payload.createdAt && !Number.isNaN(Date.parse(payload.createdAt))
+    ? payload.createdAt
+    : new Date().toISOString();
+  const expiresAt = payload.expiresAt && !Number.isNaN(Date.parse(payload.expiresAt))
+    ? payload.expiresAt
+    : new Date(new Date(createdAt).getTime() + CACHE_MS).toISOString();
+
+  return {
+    ExerciseId: exerciseId,
+    Title: String(payload.title ?? "Listening practice"),
+    Genre: String(payload.genre ?? "General"),
+    EnglishLevel: normalizeEnglishLevel(Number(payload.englishLevel ?? 1)),
+    Transcript: String(payload.transcript ?? ""),
+    ...(payload.audioContent ? { AudioContent: String(payload.audioContent) } : {}),
+    Questions: ensureQuestionExplanations(questions, String(payload.transcript ?? "")),
+    CreatedAt: createdAt,
+    ExpiresAt: expiresAt,
+  };
+}
+
 function resolveProvider(aiModel: number | undefined): AiProvider {
   const parsed = Number(aiModel);
   if (Number.isInteger(parsed) && aiModelProviderMap[parsed]) {
@@ -416,6 +565,7 @@ function getGenreLabel(genre: number): string {
 }
 
 export async function generateListeningExercise(input: {
+  requestedByTaiKhoanId: number;
   Genre: number;
   EnglishLevel: number;
   TotalQuestions: number;
@@ -423,38 +573,89 @@ export async function generateListeningExercise(input: {
   AiModel?: number;
 }) {
   const totalQuestions = Math.min(15, Math.max(1, Number(input.TotalQuestions) || 5));
-  const exerciseId = randomUUID();
+  const temporaryExerciseId = randomUUID();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + CACHE_MS);
   const genreLabel = getGenreLabel(input.Genre);
+  const englishLevel = normalizeEnglishLevel(Number(input.EnglishLevel));
   const generated = await generateListeningFromAi({ ...input, TotalQuestions: totalQuestions });
+  const audioContent = buildFallbackAudioUrl(generated.Transcript);
 
   const exercise: ListeningExercise = {
-    ExerciseId: exerciseId,
+    ExerciseId: temporaryExerciseId,
     Title: generated.Title,
     Genre: genreLabel,
-    EnglishLevel: Number(input.EnglishLevel) || 1,
+    EnglishLevel: englishLevel,
     Transcript: generated.Transcript,
+    ...(audioContent ? { AudioContent: audioContent } : {}),
     Questions: generated.Questions,
     CreatedAt: now.toISOString(),
     ExpiresAt: expiresAt.toISOString(),
   };
 
-  exercises.set(exerciseId, exercise);
+  if (appConfig.db.enabled) {
+    const exerciseId = await exerciseRepository.saveListening({
+      requestedByTaiKhoanId: input.requestedByTaiKhoanId,
+      title: exercise.Title,
+      topic: input.CustomTopic?.trim() || genreLabel,
+      transcript: exercise.Transcript,
+      questionsJson: JSON.stringify(exercise.Questions),
+      englishLevel,
+      cefrLevel: mapEnglishLevelToCefr(englishLevel),
+      genre: genreLabel,
+      totalQuestions: exercise.Questions.length,
+      audioContent: exercise.AudioContent ?? null,
+      audioFilePath: null,
+      createdAt: now,
+      expiresAt,
+    });
+
+    if (!exerciseId) {
+      throw new Error("Unable to save listening exercise");
+    }
+
+    exercise.ExerciseId = String(exerciseId);
+  }
+
+  exercises.set(exercise.ExerciseId, exercise);
   return exercise;
 }
 
-export function gradeListeningExercise(input: {
+export async function gradeListeningExercise(input: {
+  requestedByTaiKhoanId: number;
   ExerciseId: string;
   Answers: Array<{ QuestionIndex: number; SelectedOptionIndex: number }>;
 }) {
-  const exercise = exercises.get(input.ExerciseId);
-  if (!exercise) {
-    return null;
+  let exercise = exercises.get(input.ExerciseId) ?? null;
+
+  if (exercise && new Date(exercise.ExpiresAt).getTime() < Date.now()) {
+    exercises.delete(input.ExerciseId);
+    exercise = null;
   }
 
-  if (new Date(exercise.ExpiresAt).getTime() < Date.now()) {
-    exercises.delete(input.ExerciseId);
+  const parsedExerciseId = Number(input.ExerciseId);
+  let nguoiDungId: number | null = null;
+
+  if (!exercise && appConfig.db.enabled && Number.isInteger(parsedExerciseId) && parsedExerciseId > 0) {
+    nguoiDungId = await exerciseRepository.resolveNguoiDungIdByTaiKhoanId(input.requestedByTaiKhoanId);
+    if (!nguoiDungId) {
+      return null;
+    }
+
+    const stored = await exerciseRepository.getExerciseById(parsedExerciseId, nguoiDungId);
+    if (!stored || stored.kieuBaiTap !== "listening") {
+      return null;
+    }
+
+    exercise = parseStoredListeningExercise(String(parsedExerciseId), stored.noiDungJson);
+    if (!exercise) {
+      return null;
+    }
+
+    exercises.set(exercise.ExerciseId, exercise);
+  }
+
+  if (!exercise) {
     return null;
   }
 
@@ -481,7 +682,7 @@ export function gradeListeningExercise(input: {
   const correctAnswers = feedback.filter((x) => x.IsCorrect).length;
   const score = feedback.length > 0 ? Math.round((correctAnswers / feedback.length) * 10000) / 100 : 0;
 
-  return {
+  const response = {
     ExerciseId: exercise.ExerciseId,
     Title: exercise.Title,
     Transcript: exercise.Transcript,
@@ -491,10 +692,95 @@ export function gradeListeningExercise(input: {
     Score: score,
     Questions: feedback,
   };
+
+  if (appConfig.db.enabled && Number.isInteger(parsedExerciseId) && parsedExerciseId > 0) {
+    const effectiveNguoiDungId =
+      nguoiDungId ?? (await exerciseRepository.resolveNguoiDungIdByTaiKhoanId(input.requestedByTaiKhoanId));
+
+    if (effectiveNguoiDungId) {
+      const stored = await exerciseRepository.getExerciseById(parsedExerciseId, effectiveNguoiDungId);
+      if (stored && stored.kieuBaiTap === "listening") {
+        const details = feedback.map((item, index) => ({
+          questionOrder: index + 1,
+          questionType: "listening",
+          userAnswer:
+            typeof item.SelectedOptionIndex === "number" && item.SelectedOptionIndex >= 0
+              ? String(item.Options[item.SelectedOptionIndex] ?? "")
+              : null,
+          correctAnswer: String(item.Options[item.RightOptionIndex] ?? ""),
+          isCorrect: item.IsCorrect,
+          scorePerQuestion:
+            feedback.length > 0 && item.IsCorrect
+              ? Math.round((10000 / feedback.length)) / 100
+              : 0,
+          note: item.ExplanationInVietnamese,
+        }));
+
+        const completedAt = new Date();
+        const incorrectAnswers = Math.max(0, feedback.length - correctAnswers);
+
+        await exerciseRepository.addCompletion({
+          nguoiDungId: effectiveNguoiDungId,
+          exerciseId: parsedExerciseId,
+          answersJson: {
+            answers: input.Answers,
+          },
+          resultJson: {
+            totalQuestions: feedback.length,
+            correctAnswers,
+            incorrectAnswers,
+            score,
+            submittedAt: completedAt.toISOString(),
+          },
+          score,
+          totalQuestions: feedback.length,
+          correctAnswers,
+          completedAt,
+          details,
+        });
+      }
+    }
+  }
+
+  return response;
 }
 
-export function getRecentListeningExercises(take?: number) {
+export async function getRecentListeningExercises(requestedByTaiKhoanId: number, take?: number) {
   const limit = Math.min(50, Math.max(1, take ?? 20));
+
+  if (appConfig.db.enabled) {
+    const nguoiDungId = await exerciseRepository.resolveNguoiDungIdByTaiKhoanId(requestedByTaiKhoanId);
+    if (!nguoiDungId) {
+      return [];
+    }
+
+    const rows = await exerciseRepository.listRecentListeningExercises(nguoiDungId, limit);
+    const nowMs = Date.now();
+
+    return rows
+      .map((row) => {
+        const payload = parseJson<StoredListeningPayload>(row.noiDungJson);
+        const createdAt = payload?.createdAt && !Number.isNaN(Date.parse(payload.createdAt))
+          ? payload.createdAt
+          : row.createdAt.toISOString();
+        const expiresAt = payload?.expiresAt && !Number.isNaN(Date.parse(payload.expiresAt))
+          ? payload.expiresAt
+          : new Date(new Date(createdAt).getTime() + CACHE_MS).toISOString();
+
+        return {
+          ExerciseId: String(row.exerciseId),
+          Title: String(payload?.title ?? `Listening practice ${row.exerciseId}`),
+          Genre: String(payload?.genre ?? "General"),
+          EnglishLevel: normalizeEnglishLevel(Number(payload?.englishLevel ?? 1)),
+          TotalQuestions: Array.isArray(payload?.questions) ? payload.questions.length : 0,
+          CreatedAt: createdAt,
+          ExpiresAt: expiresAt,
+        };
+      })
+      .filter((item) => new Date(item.ExpiresAt).getTime() >= nowMs)
+      .slice(0, limit);
+  }
+
   const nowMs = Date.now();
 
   return [...exercises.values()]

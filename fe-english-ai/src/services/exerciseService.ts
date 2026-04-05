@@ -63,6 +63,21 @@ export interface SaveExerciseRequest {
   createdBy?: number;
 }
 
+export interface SubmitExerciseResultRequest {
+  exerciseId: number;
+  answers: string[];
+  completedAt?: string;
+}
+
+export interface SubmitExerciseResultResponse {
+  success: boolean;
+  message: string;
+  score: number;
+  totalQuestions: number;
+  correctAnswers: number;
+  incorrectAnswers: number;
+}
+
 export interface SubmissionResult {
   score: number;
   totalQuestions: number;
@@ -239,6 +254,19 @@ export const exerciseService = {
       return response;
     } catch (error) {
       console.error('❌ Error saving exercise:', error);
+      throw error;
+    }
+  },
+
+  async submitExerciseResult(request: SubmitExerciseResultRequest): Promise<SubmitExerciseResultResponse> {
+    try {
+      const response = await apiService.post<SubmitExerciseResultResponse, SubmitExerciseResultRequest>(
+        '/api/exercise/submit-result',
+        request
+      );
+      return response;
+    } catch (error) {
+      console.error('❌ Error submitting grammar exercise result:', error);
       throw error;
     }
   }

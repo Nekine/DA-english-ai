@@ -12,12 +12,23 @@ import {
   updateReadingExercise,
 } from "../../services/reading-exercise-service";
 
+function getAuthenticatedTaiKhoanId(req: Request): number {
+  return Number(req.auth?.sub ?? 0);
+}
+
 export async function listReadingExercisesHandler(req: Request, res: Response): Promise<void> {
+  const requestedByTaiKhoanId = getAuthenticatedTaiKhoanId(req);
+  if (!Number.isInteger(requestedByTaiKhoanId) || requestedByTaiKhoanId <= 0) {
+    res.status(HTTP_STATUS.UNAUTHORIZED).json({ message: "Invalid or missing token" });
+    return;
+  }
+
   const level = req.query.level as string | undefined;
   const type = req.query.type as string | undefined;
   const sourceType = req.query.sourceType as string | undefined;
 
   const result = await listReadingExercises({
+    requestedByTaiKhoanId,
     ...(level ? { level } : {}),
     ...(type ? { type } : {}),
     ...(sourceType ? { sourceType } : {}),
@@ -26,13 +37,19 @@ export async function listReadingExercisesHandler(req: Request, res: Response): 
 }
 
 export async function getReadingExerciseByIdHandler(req: Request, res: Response): Promise<void> {
+  const requestedByTaiKhoanId = getAuthenticatedTaiKhoanId(req);
+  if (!Number.isInteger(requestedByTaiKhoanId) || requestedByTaiKhoanId <= 0) {
+    res.status(HTTP_STATUS.UNAUTHORIZED).json({ message: "Invalid or missing token" });
+    return;
+  }
+
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) {
     res.status(HTTP_STATUS.BAD_REQUEST).json({ message: "Invalid id" });
     return;
   }
 
-  const exercise = await getReadingExerciseById(id);
+  const exercise = await getReadingExerciseById(id, requestedByTaiKhoanId);
   if (!exercise) {
     res.status(HTTP_STATUS.NOT_FOUND).json({ message: "Exercise not found" });
     return;
@@ -42,6 +59,12 @@ export async function getReadingExerciseByIdHandler(req: Request, res: Response)
 }
 
 export async function createReadingPassageHandler(req: Request, res: Response): Promise<void> {
+  const requestedByTaiKhoanId = getAuthenticatedTaiKhoanId(req);
+  if (!Number.isInteger(requestedByTaiKhoanId) || requestedByTaiKhoanId <= 0) {
+    res.status(HTTP_STATUS.UNAUTHORIZED).json({ message: "Invalid or missing token" });
+    return;
+  }
+
   const body = req.body as {
     title: string;
     content: string;
@@ -55,7 +78,15 @@ export async function createReadingPassageHandler(req: Request, res: Response): 
     return;
   }
 
-  const created = await createReadingPassage(body);
+  const created = await createReadingPassage({
+    requestedByTaiKhoanId,
+    ...body,
+  });
+  if (!created) {
+    res.status(HTTP_STATUS.BAD_REQUEST).json({ message: "Unable to create exercise" });
+    return;
+  }
+
   res.status(HTTP_STATUS.OK).json({
     exerciseId: created?.ExerciseId,
     id: created?.Id,
@@ -71,6 +102,12 @@ export async function createReadingPassageHandler(req: Request, res: Response): 
 }
 
 export async function addReadingQuestionsHandler(req: Request, res: Response): Promise<void> {
+  const requestedByTaiKhoanId = getAuthenticatedTaiKhoanId(req);
+  if (!Number.isInteger(requestedByTaiKhoanId) || requestedByTaiKhoanId <= 0) {
+    res.status(HTTP_STATUS.UNAUTHORIZED).json({ message: "Invalid or missing token" });
+    return;
+  }
+
   const exerciseId = Number(req.params.id);
   if (!Number.isInteger(exerciseId) || exerciseId <= 0) {
     res.status(HTTP_STATUS.BAD_REQUEST).json({ message: "Invalid exercise id" });
@@ -88,7 +125,7 @@ export async function addReadingQuestionsHandler(req: Request, res: Response): P
     explanation: q.explanation ?? q.Explanation ?? "",
   }));
 
-  const updated = await addReadingQuestions(exerciseId, questions);
+  const updated = await addReadingQuestions(exerciseId, questions, requestedByTaiKhoanId);
   if (!updated) {
     res.status(HTTP_STATUS.NOT_FOUND).json({ message: "Exercise not found" });
     return;
@@ -98,6 +135,12 @@ export async function addReadingQuestionsHandler(req: Request, res: Response): P
 }
 
 export async function createReadingWithAiHandler(req: Request, res: Response): Promise<void> {
+  const requestedByTaiKhoanId = getAuthenticatedTaiKhoanId(req);
+  if (!Number.isInteger(requestedByTaiKhoanId) || requestedByTaiKhoanId <= 0) {
+    res.status(HTTP_STATUS.UNAUTHORIZED).json({ message: "Invalid or missing token" });
+    return;
+  }
+
   const body = req.body as {
     title: string;
     content: string;
@@ -108,7 +151,10 @@ export async function createReadingWithAiHandler(req: Request, res: Response): P
     provider?: string;
   };
 
-  const created = await createReadingWithAi(body);
+  const created = await createReadingWithAi({
+    requestedByTaiKhoanId,
+    ...body,
+  });
   if (!created) {
     res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ message: "Unable to create AI exercise" });
     return;
@@ -118,7 +164,22 @@ export async function createReadingWithAiHandler(req: Request, res: Response): P
 }
 
 export async function generateAiReadingHandler(req: Request, res: Response): Promise<void> {
-  const result = await generateAiReading(req.body);
+  const requestedByTaiKhoanId = getAuthenticatedTaiKhoanId(req);
+  if (!Number.isInteger(requestedByTaiKhoanId) || requestedByTaiKhoanId <= 0) {
+    res.status(HTTP_STATUS.UNAUTHORIZED).json({ message: "Invalid or missing token" });
+    return;
+  }
+
+  const result = await generateAiReading({
+    ...(req.body as Record<string, unknown>),
+    requestedByTaiKhoanId,
+  } as {
+    topic: string;
+    level: "Beginner" | "Intermediate" | "Advanced";
+    type: "Part 5" | "Part 6" | "Part 7";
+    provider?: "gemini" | "openai" | "xai";
+    requestedByTaiKhoanId: number;
+  });
   if (!result) {
     res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ message: "Unable to generate exercise" });
     return;
@@ -128,7 +189,24 @@ export async function generateAiReadingHandler(req: Request, res: Response): Pro
 }
 
 export async function submitReadingResultHandler(req: Request, res: Response): Promise<void> {
-  const result = await submitReadingResult(req.body);
+  const requestedByTaiKhoanId = getAuthenticatedTaiKhoanId(req);
+  if (!Number.isInteger(requestedByTaiKhoanId) || requestedByTaiKhoanId <= 0) {
+    res.status(HTTP_STATUS.UNAUTHORIZED).json({ message: "Invalid or missing token" });
+    return;
+  }
+
+  const body = req.body as {
+    exerciseId: number;
+    answers: number[];
+    completedAt?: string;
+  };
+
+  const result = await submitReadingResult({
+    requestedByTaiKhoanId,
+    exerciseId: Number(body.exerciseId),
+    answers: Array.isArray(body.answers) ? body.answers : [],
+    ...(body.completedAt ? { completedAt: body.completedAt } : {}),
+  });
   if (!result.success) {
     res.status(HTTP_STATUS.BAD_REQUEST).json(result);
     return;
@@ -138,6 +216,12 @@ export async function submitReadingResultHandler(req: Request, res: Response): P
 }
 
 export async function updateReadingExerciseHandler(req: Request, res: Response): Promise<void> {
+  const requestedByTaiKhoanId = getAuthenticatedTaiKhoanId(req);
+  if (!Number.isInteger(requestedByTaiKhoanId) || requestedByTaiKhoanId <= 0) {
+    res.status(HTTP_STATUS.UNAUTHORIZED).json({ message: "Invalid or missing token" });
+    return;
+  }
+
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) {
     res.status(HTTP_STATUS.BAD_REQUEST).json({ message: "Invalid id" });
@@ -145,24 +229,30 @@ export async function updateReadingExerciseHandler(req: Request, res: Response):
   }
 
   const body = req.body as { title: string; content: string; level: string; type: string; description?: string };
-  const updated = await updateReadingExercise(id, body);
+  const updated = await updateReadingExercise(id, requestedByTaiKhoanId, body);
   if (!updated) {
     res.status(HTTP_STATUS.NOT_FOUND).json({ message: "Exercise not found" });
     return;
   }
 
-  const exercise = await getReadingExerciseById(id);
+  const exercise = await getReadingExerciseById(id, requestedByTaiKhoanId);
   res.status(HTTP_STATUS.OK).json(exercise);
 }
 
 export async function deleteReadingExerciseHandler(req: Request, res: Response): Promise<void> {
+  const requestedByTaiKhoanId = getAuthenticatedTaiKhoanId(req);
+  if (!Number.isInteger(requestedByTaiKhoanId) || requestedByTaiKhoanId <= 0) {
+    res.status(HTTP_STATUS.UNAUTHORIZED).json({ message: "Invalid or missing token" });
+    return;
+  }
+
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) {
     res.status(HTTP_STATUS.BAD_REQUEST).json({ message: "Invalid id" });
     return;
   }
 
-  const deleted = await deleteReadingExercise(id);
+  const deleted = await deleteReadingExercise(id, requestedByTaiKhoanId);
   if (!deleted) {
     res.status(HTTP_STATUS.NOT_FOUND).json({ message: "Exercise not found" });
     return;

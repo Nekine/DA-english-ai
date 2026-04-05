@@ -5,9 +5,12 @@ import {
   getRecentListeningHandler,
   gradeListeningHandler,
 } from "../controllers/listening/listening-controller";
+import { requireAuth } from "../middlewares/require-auth";
 import { asyncHandler } from "../utils/async-handler";
 
 export const listeningRoutes = Router();
+
+listeningRoutes.use(requireAuth);
 
 listeningRoutes.get("/Genres", asyncHandler(getListeningGenresHandler));
 listeningRoutes.post("/Generate", asyncHandler(generateListeningHandler));

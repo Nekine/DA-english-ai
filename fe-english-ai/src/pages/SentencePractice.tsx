@@ -52,7 +52,7 @@ interface SentenceReview {
 const SentencePractice = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { generatedData, topic, level } = location.state || {};
+  const { generatedData, topic, level, exerciseId } = location.state || {};
   
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userTranslation, setUserTranslation] = useState("");
@@ -255,6 +255,21 @@ const SentencePractice = () => {
       
       if (validReviews.length !== reviewResults.length) {
         console.warn("⚠️ Some reviews are invalid!");
+      }
+
+      if (Number.isInteger(exerciseId) && Number(exerciseId) > 0) {
+        try {
+          await sentenceWritingApi.submitSentenceWritingResult({
+            exerciseId: Number(exerciseId),
+            answers: allAnswers.map((answer) => ({
+              sentenceId: answer.sentenceId,
+              userTranslation: answer.userTranslation,
+            })),
+            completedAt: new Date().toISOString(),
+          });
+        } catch (persistError) {
+          console.error("⚠️ Failed to persist sentence-writing attempt:", persistError);
+        }
       }
       
       setReviews(reviewResults);

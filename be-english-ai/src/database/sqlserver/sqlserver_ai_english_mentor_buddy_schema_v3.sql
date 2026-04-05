@@ -339,6 +339,96 @@ GO
 CREATE INDEX IX_ChiTietChamBaiBaiTapAI_BaiLamBaiTapAIId ON dbo.ChiTietChamBaiBaiTapAI(BaiLamBaiTapAIId);
 GO
 
+
+/* =========================================================
+    BÀI LÀM + CHẤM ĐIỂM CHO Bài làm đề thi
+   ========================================================= */
+
+IF OBJECT_ID(N'dbo.BaiLamDeThiAI', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.BaiLamDeThiAI (
+        BaiLamDeThiAIId      INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_BaiLamDeThiAI PRIMARY KEY,
+        DeThiAIId            INT NOT NULL,
+        NguoiDungId          INT NOT NULL,
+        LanThu               INT NOT NULL CONSTRAINT DF_BaiLamDeThiAI_LanThu DEFAULT (1),
+
+        CauTraLoiTongJson    NVARCHAR(MAX) NULL,
+        KetQuaChamTongJson    NVARCHAR(MAX) NULL,
+
+        TongSoCau            INT NULL,
+        SoCauDung            INT NULL,
+        SoCauSai             INT NULL,
+        DiemSo               DECIMAL(5,2) NULL,
+
+        TrinhDoNhanDinhAI    NVARCHAR(20) NULL,
+
+        ThoiGianBatDau       DATETIME2(0) NULL,
+        ThoiGianHoanThanh    DATETIME2(0) NULL,
+        ThoiGianLamPhut      INT NULL,
+
+        TrangThaiBaiLam      NVARCHAR(20) NOT NULL CONSTRAINT DF_BaiLamDeThiAI_TrangThai DEFAULT N'in_progress',
+        NhanXetAI            NVARCHAR(MAX) NULL,
+        NgayTao              DATETIME2(0) NOT NULL CONSTRAINT DF_BaiLamDeThiAI_NgayTao DEFAULT SYSDATETIME(),
+
+        CONSTRAINT FK_BaiLamDeThiAI_DeThiAI 
+            FOREIGN KEY (DeThiAIId) 
+            REFERENCES dbo.DeThiAI(DeThiAIId) 
+            ON DELETE CASCADE,
+
+        CONSTRAINT FK_BaiLamDeThiAI_NguoiDung 
+            FOREIGN KEY (NguoiDungId) 
+            REFERENCES dbo.NguoiDung(NguoiDungId) 
+            ON DELETE NO ACTION,
+
+        CONSTRAINT UQ_BaiLamDeThiAI 
+            UNIQUE (NguoiDungId, DeThiAIId, LanThu),
+
+        CONSTRAINT CK_BaiLamDeThiAI_TrangThai 
+            CHECK (TrangThaiBaiLam IN (N'in_progress', N'submitted', N'graded')),
+
+        CONSTRAINT CK_BaiLamDeThiAI_CauTraLoiTongJson 
+            CHECK (CauTraLoiTongJson IS NULL OR ISJSON(CauTraLoiTongJson) = 1),
+
+        CONSTRAINT CK_BaiLamDeThiAI_KetQuaChamTongJson 
+            CHECK (KetQuaChamTongJson IS NULL OR ISJSON(KetQuaChamTongJson) = 1)
+    );
+END
+GO
+
+select * from BaiLamDeThiAI
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE name = N'IX_BaiLamDeThiAI_DeThiAIId'
+      AND object_id = OBJECT_ID(N'dbo.BaiLamDeThiAI')
+)
+BEGIN
+    CREATE INDEX IX_BaiLamDeThiAI_DeThiAIId ON dbo.BaiLamDeThiAI(DeThiAIId);
+END
+GO
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE name = N'IX_BaiLamDeThiAI_NguoiDungId'
+      AND object_id = OBJECT_ID(N'dbo.BaiLamDeThiAI')
+)
+BEGIN
+    CREATE INDEX IX_BaiLamDeThiAI_NguoiDungId ON dbo.BaiLamDeThiAI(NguoiDungId);
+END
+GO
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE name = N'IX_BaiLamDeThiAI_TrangThai'
+      AND object_id = OBJECT_ID(N'dbo.BaiLamDeThiAI')
+)
+BEGIN
+    CREATE INDEX IX_BaiLamDeThiAI_TrangThai ON dbo.BaiLamDeThiAI(TrangThaiBaiLam);
+END
+GO
+
 /* =========================================================
    7) ĐIỂM YẾU NGƯỜI DÙNG
    =========================================================

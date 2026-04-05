@@ -10,9 +10,12 @@ import {
   submitReadingResultHandler,
   updateReadingExerciseHandler,
 } from "../controllers/reading-exercise/reading-exercise-controller";
+import { requireAuth } from "../middlewares/require-auth";
 import { asyncHandler } from "../utils/async-handler";
 
 export const readingExerciseRoutes = Router();
+
+readingExerciseRoutes.use(requireAuth);
 
 readingExerciseRoutes.get("/", asyncHandler(listReadingExercisesHandler));
 readingExerciseRoutes.get("/:id", asyncHandler(getReadingExerciseByIdHandler));
