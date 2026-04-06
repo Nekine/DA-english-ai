@@ -42,6 +42,7 @@ export type ListeningSaveInput = {
   genre: string;
   totalQuestions: number;
   audioContent: string | null;
+  audioSegments: string[];
   audioFilePath: string | null;
   createdAt: Date;
   expiresAt: Date;
@@ -280,6 +281,7 @@ export class ExerciseRepository extends BaseRepository {
       genre: input.genre,
       totalQuestions: input.totalQuestions,
       audioContent: input.audioContent,
+      audioSegments: input.audioSegments,
       audioFilePath: input.audioFilePath,
       createdAt: input.createdAt.toISOString(),
       expiresAt: input.expiresAt.toISOString(),

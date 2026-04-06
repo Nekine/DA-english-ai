@@ -49,7 +49,9 @@ const Listening = () => {
   const [gradeResult, setGradeResult] = useState<ListeningGradeResult | null>(null);
   const [showTranscript, setShowTranscript] = useState<boolean>(false);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
+  const [activeAudioSegment, setActiveAudioSegment] = useState<number>(0);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const userStoppedSpeechRef = useRef<boolean>(false);
   const [recentExercises, setRecentExercises] = useState<ListeningExerciseSummary[]>([]);
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
@@ -62,8 +64,33 @@ const Listening = () => {
     () => new Intl.DateTimeFormat('vi-VN', { dateStyle: 'medium', timeStyle: 'short' }),
     []
   );
+  const playbackSegments = useMemo(() => {
+    if (!exercise) {
+      return [] as string[];
+    }
+
+    const segments = Array.isArray(exercise.AudioSegments)
+      ? exercise.AudioSegments.filter((segment) => typeof segment === 'string' && segment.trim().length > 0)
+      : [];
+
+    if (segments.length > 0) {
+      return segments;
+    }
+
+    return exercise.AudioContent ? [exercise.AudioContent] : [];
+  }, [exercise]);
 
   const formatTimestamp = (value: string) => dateTimeFormatter.format(new Date(value));
+
+  useEffect(() => {
+    setActiveAudioSegment(0);
+  }, [exercise?.ExerciseId]);
+
+  useEffect(() => {
+    if (activeAudioSegment >= playbackSegments.length) {
+      setActiveAudioSegment(0);
+    }
+  }, [activeAudioSegment, playbackSegments.length]);
 
   const loadRecentExercises = async () => {
     try {
@@ -149,6 +176,28 @@ const Listening = () => {
     setIsSpeaking(false);
   };
 
+  const handleAudioSegmentEnded = () => {
+    if (playbackSegments.length <= 1) {
+      return;
+    }
+
+    if (activeAudioSegment >= playbackSegments.length - 1) {
+      return;
+    }
+
+    const nextSegment = activeAudioSegment + 1;
+    setActiveAudioSegment(nextSegment);
+
+    window.setTimeout(() => {
+      const playPromise = audioElementRef.current?.play();
+      if (playPromise) {
+        void playPromise.catch(() => {
+          // Ignore autoplay restrictions after segment switch.
+        });
+      }
+    }, 0);
+  };
+
   const handleGenerateExercise = async () => {
     if (!selectedGenre) {
       toast({
@@ -171,6 +220,7 @@ const Listening = () => {
       setIsLoading(true);
       const result = await listeningService.generateExercise(params);
       setExercise(result);
+      setActiveAudioSegment(0);
       setAnswers({});
       setGradeResult(null);
       setShowTranscript(false);
@@ -558,11 +608,45 @@ const Listening = () => {
                     </Badge>
                   </div>
                 </div>
-                {exercise.AudioContent && (
-                  <audio controls className="w-full rounded-lg bg-gray-100 p-2 md:w-64 dark:bg-gray-800">
-                    <source src={exercise.AudioContent} type="audio/mp3" />
-                    Trình duyệt của bạn không hỗ trợ phát audio.
-                  </audio>
+                {playbackSegments.length > 0 && (
+                  <div className="w-full space-y-2 md:w-64">
+                    <audio
+                      key={`${exercise.ExerciseId}-${activeAudioSegment}`}
+                      ref={audioElementRef}
+                      controls
+                      onEnded={handleAudioSegmentEnded}
+                      className="w-full rounded-lg bg-gray-100 p-2 dark:bg-gray-800"
+                    >
+                      <source src={playbackSegments[activeAudioSegment]} type="audio/mp3" />
+                      Trình duyệt của bạn không hỗ trợ phát audio.
+                    </audio>
+
+                    {playbackSegments.length > 1 && (
+                      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setActiveAudioSegment((prev) => Math.max(0, prev - 1))}
+                          disabled={activeAudioSegment === 0}
+                        >
+                          Đoạn trước
+                        </Button>
+                        <span>
+                          Đoạn {activeAudioSegment + 1}/{playbackSegments.length}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setActiveAudioSegment((prev) => Math.min(playbackSegments.length - 1, prev + 1))}
+                          disabled={activeAudioSegment >= playbackSegments.length - 1}
+                        >
+                          Đoạn sau
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 

@@ -150,6 +150,14 @@ const SentencePractice = () => {
       .replace(/\s+/g, ' '); // Normalize whitespace
   };
 
+  const normalizeVietnameseSentence = (text: string | undefined): string => {
+    if (!text) return '';
+    return text
+      .replace(/^\s*(?:cau)\s*\d+\s*[:.)-]?\s*/i, '')
+      .replace(/^\s*\d+\s*[:.)-]\s*/, '')
+      .trim();
+  };
+
   const handleSubmitAll = async () => {
     if (!userTranslation.trim()) {
       toast.error("Vui lòng nhập bản dịch cho câu cuối cùng!");
@@ -427,7 +435,7 @@ const SentencePractice = () => {
                     {/* Vietnamese Sentence */}
                     <div className="p-3 bg-accent rounded-lg border">
                       <p className="text-sm text-muted-foreground mb-1">🇻🇳 Câu tiếng Việt:</p>
-                      <p className="font-medium">{review.vietnamese}</p>
+                      <p className="font-medium">Câu {index + 1}: {normalizeVietnameseSentence(review.vietnamese)}</p>
                     </div>
 
                     {/* User Answer */}
@@ -529,7 +537,7 @@ const SentencePractice = () => {
               <CardContent className="pt-6">
                 <div className="p-4 bg-accent rounded-lg border-2 border-primary/20">
                   <p className="text-lg font-medium">
-                    {currentSentence.vietnamese}
+                    Câu {currentIndex + 1}: {normalizeVietnameseSentence(currentSentence.vietnamese)}
                   </p>
                 </div>
               </CardContent>
@@ -630,7 +638,7 @@ const SentencePractice = () => {
                           {hasAnswer && <Check className="w-4 h-4 text-green-600" />}
                         </div>
                         <p className="text-sm text-muted-foreground line-clamp-2">
-                          {sentence.vietnamese}
+                          {normalizeVietnameseSentence(sentence.vietnamese)}
                         </p>
                       </div>
                     );

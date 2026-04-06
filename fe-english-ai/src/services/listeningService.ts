@@ -34,6 +34,7 @@ export interface ListeningExerciseResult {
   EnglishLevel: number;
   Transcript: string;
   AudioContent?: string;
+  AudioSegments?: string[];
   Questions: ListeningQuestion[];
 }
 
@@ -57,6 +58,7 @@ export interface ListeningGradeResult {
   Title: string;
   Transcript: string;
   AudioContent?: string;
+  AudioSegments?: string[];
   TotalQuestions: number;
   CorrectAnswers: number;
   Score: number;
@@ -87,10 +89,24 @@ export const listeningService = {
   },
 
   async gradeExercise(exerciseId: string, answers: ListeningAnswerPayload[]): Promise<ListeningGradeResult> {
-    return apiService.post<ListeningGradeResult, { ExerciseId: string; Answers: ListeningAnswerPayload[] }>(
-      '/api/Listening/Grade',
-      { ExerciseId: exerciseId, Answers: answers }
-    );
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 45000);
+
+    try {
+      return await apiService.post<ListeningGradeResult, { ExerciseId: string; Answers: ListeningAnswerPayload[] }>(
+        '/api/Listening/Grade',
+        { ExerciseId: exerciseId, Answers: answers },
+        { signal: controller.signal }
+      );
+    } catch (error: unknown) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new Error('Hệ thống chấm điểm đang quá tải. Vui lòng thử lại sau vài giây.');
+      }
+
+      throw error;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
   },
 
   async getRecentExercises(take?: number): Promise<ListeningExerciseSummary[]> {

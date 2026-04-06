@@ -55,13 +55,27 @@ function parseQuestionsJson(raw: string): ReadingQuestion[] {
       options?: string[];
       correctAnswer?: number;
       explanation?: string;
+      Explanation?: string;
+      ExplanationInVietnamese?: string;
+      explanationInVietnamese?: string;
     }>;
 
     return data.map((item) => ({
       question: item.questionText ?? item.question ?? "",
       options: Array.isArray(item.options) ? item.options : [],
       correctAnswer: Number(item.correctAnswer ?? 0),
-      ...(item.explanation ? { explanation: item.explanation } : {}),
+      ...((item.explanation
+        ?? item.Explanation
+        ?? item.ExplanationInVietnamese
+        ?? item.explanationInVietnamese)
+        ? {
+            explanation:
+              item.explanation
+              ?? item.Explanation
+              ?? item.ExplanationInVietnamese
+              ?? item.explanationInVietnamese,
+          }
+        : {}),
     }));
   } catch {
     return [];
@@ -147,6 +161,17 @@ function readArrayFromKeys(record: UnknownRecord | null, keys: string[]): unknow
     if (Array.isArray(value)) {
       return value;
     }
+
+    if (typeof value === "string") {
+      try {
+        const parsed = JSON.parse(value) as unknown;
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+      } catch {
+        // Ignore invalid JSON strings.
+      }
+    }
   }
 
   return [];
@@ -158,9 +183,22 @@ function readObjectFromKeys(record: UnknownRecord | null, keys: string[]): Unkno
   }
 
   for (const key of keys) {
-    const value = asRecord(record[key]);
+    const raw = record[key];
+    const value = asRecord(raw);
     if (value) {
       return value;
+    }
+
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        const parsedRecord = asRecord(parsed);
+        if (parsedRecord) {
+          return parsedRecord;
+        }
+      } catch {
+        // Ignore invalid JSON strings.
+      }
     }
   }
 
@@ -199,6 +237,52 @@ function optionsFromObject(optionObject: UnknownRecord): string[] {
   }
 
   return options;
+}
+
+function isPlaceholderOptions(options: string[]): boolean {
+  if (options.length !== 4) {
+    return false;
+  }
+
+  return options.every((option, index) => option.trim().toLowerCase() === `option ${String.fromCharCode(97 + index)}`);
+}
+
+function extractEvidenceSentence(content: string, correctOption: string): string {
+  const normalizedOption = correctOption.trim().toLowerCase();
+  const sentences = content
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length > 0);
+
+  const evidence = sentences.find((sentence) => sentence.toLowerCase().includes(normalizedOption));
+  if (evidence) {
+    return evidence;
+  }
+
+  return sentences[0] ?? "";
+}
+
+function buildReadingExplanation(
+  questionText: string,
+  options: string[],
+  correctAnswer: number,
+  content: string,
+): string {
+  const correctOption = options[correctAnswer] ?? "";
+  const wrongOption = options.find((_, index) => index !== correctAnswer) ?? "";
+  const stem = questionText.replace(/_{2,}/g, "____").trim();
+  const completed = stem.includes("____") && correctOption
+    ? stem.replace("____", correctOption)
+    : stem;
+  const evidence = extractEvidenceSentence(content, correctOption);
+
+  return [
+    `Đáp án đúng là "${correctOption}" vì câu hoàn chỉnh hợp nghĩa: "${completed}".`,
+    evidence ? `Trong bài đọc có chi tiết: "${evidence}".` : "Dựa trên ngữ cảnh chung của bài đọc.",
+    "Mẹo: đọc kỹ từ khóa trước và sau chỗ trống để đối chiếu thông tin trong bài.",
+  ]
+    .filter((part) => part.length > 0)
+    .join(" ");
 }
 
 function normalizeReadingOptions(rawOptions: unknown[]): string[] {
@@ -278,7 +362,11 @@ function extractReadingQuestions(payload: unknown): UnknownRecord[] {
   return [];
 }
 
-function buildReadingQuestionInput(question: UnknownRecord, index: number): ReadingQuestionInput {
+function buildReadingQuestionInput(
+  question: UnknownRecord,
+  index: number,
+  content: string,
+): ReadingQuestionInput {
   const arrayOptions = readArrayFromKeys(question, ["options", "Options", "choices", "Choices"]);
   const objectOptions = readObjectFromKeys(question, ["options", "Options", "choices", "Choices", "optionMap", "OptionMap"]);
   const keyedOptions = [
@@ -316,13 +404,42 @@ function buildReadingQuestionInput(question: UnknownRecord, index: number): Read
 
   const questionText = readStringFromKeys(question, ["questionText", "QuestionText", "question", "Question"])
     || `Question ${index + 1}`;
-  const explanation =
-    readStringFromKeys(question, ["explanation", "Explanation", "reason", "Reason"]) ||
-    `Đáp án đúng là "${options[correctAnswer] ?? "A"}" vì phù hợp nhất với nội dung bài đọc.`;
+  const explanationFromAi = readStringFromKeys(
+    question,
+    ["explanation", "Explanation", "reason", "Reason", "ExplanationInVietnamese", "explanationInVietnamese"],
+  );
+  const explanation = explanationFromAi || buildReadingExplanation(questionText, options, correctAnswer, content);
   const optionA = options[0] ?? "Option A";
   const optionB = options[1] ?? "Option B";
   const optionC = options[2] ?? "Option C";
   const optionD = options[3] ?? "Option D";
+
+  if (isPlaceholderOptions([optionA, optionB, optionC, optionD]) && objectOptions) {
+    const repaired = normalizeReadingOptions(optionsFromObject(objectOptions));
+    const repairedCorrectAnswer = resolveOptionIndex(
+      question.correctAnswer
+        ?? question.CorrectAnswer
+        ?? question.rightOptionIndex
+        ?? question.RightOptionIndex
+        ?? question.answer
+        ?? question.Answer
+        ?? question.correctOption
+        ?? question.CorrectOption
+        ?? question.correct
+        ?? question.Correct,
+      repaired,
+    );
+
+    return {
+      questionText,
+      optionA: repaired[0] ?? optionA,
+      optionB: repaired[1] ?? optionB,
+      optionC: repaired[2] ?? optionC,
+      optionD: repaired[3] ?? optionD,
+      correctAnswer: repairedCorrectAnswer,
+      explanation: explanationFromAi || buildReadingExplanation(questionText, repaired, repairedCorrectAnswer, content),
+    };
+  }
 
   return {
     questionText,
@@ -495,7 +612,7 @@ export async function generateAiReading(input: {
 
   const aiQuestions: ReadingQuestionInput[] = rawQuestions
     .slice(0, expectedQuestionCount)
-    .map((question, index) => buildReadingQuestionInput(question, index));
+    .map((question, index) => buildReadingQuestionInput(question, index, content));
 
   if (aiQuestions.length === 0) {
     return null;

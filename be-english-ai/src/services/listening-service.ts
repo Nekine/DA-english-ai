@@ -45,6 +45,7 @@ type StoredListeningPayload = {
   genre?: string;
   totalQuestions?: number;
   audioContent?: string | null;
+  audioSegments?: string[] | null;
   audioFilePath?: string | null;
   createdAt?: string;
   expiresAt?: string;
@@ -53,6 +54,7 @@ type StoredListeningPayload = {
 const MIN_TRANSCRIPT_WORDS = 160;
 const MAX_TRANSCRIPT_WORDS = 320;
 const MAX_AI_PARSE_ATTEMPTS = 3;
+const GOOGLE_TTS_MAX_CHARS = 180;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -116,14 +118,21 @@ function normalizeListeningAiPayload(payload: ListeningAiPayload | unknown): {
 }
 
 function resolveCorrectAnswerIndex(record: Record<string, unknown>, options: string[]): number {
-  const directIndexKeys = ["correctAnswerIndex", "correctOptionIndex", "rightOptionIndex", "answerIndex", "CorrectAnswerIndex"];
+  const directIndexKeys = [
+    "correctAnswerIndex",
+    "correctOptionIndex",
+    "rightOptionIndex",
+    "RightOptionIndex",
+    "answerIndex",
+    "CorrectAnswerIndex",
+  ];
   for (const key of directIndexKeys) {
     const num = Number(record[key]);
     if (Number.isInteger(num)) {
       if (num >= 1 && num <= options.length) {
         return num - 1;
       }
-      return Math.max(0, Math.min(3, num));
+      return Math.max(0, Math.min(Math.max(0, options.length - 1), num));
     }
   }
 
@@ -139,6 +148,23 @@ function resolveCorrectAnswerIndex(record: Record<string, unknown>, options: str
 
   if (/^[A-D]$/.test(answerToken)) {
     return answerToken.charCodeAt(0) - 65;
+  }
+
+  const letterPrefixMatch = answerToken.match(/^([A-D])(?:\s*[).:-]|\s|$)/);
+  if (letterPrefixMatch?.[1]) {
+    return letterPrefixMatch[1].charCodeAt(0) - 65;
+  }
+
+  if (/^\d+$/.test(answerToken)) {
+    const numericToken = Number(answerToken);
+    if (Number.isInteger(numericToken)) {
+      if (numericToken >= 1 && numericToken <= options.length) {
+        return numericToken - 1;
+      }
+      if (numericToken >= 0 && numericToken < options.length) {
+        return numericToken;
+      }
+    }
   }
 
   if (answerToken.length > 0) {
@@ -180,13 +206,220 @@ function mapEnglishLevelToCefr(level: number): string {
 }
 
 function buildFallbackAudioUrl(transcript: string): string | null {
+  return buildFallbackAudioUrls(transcript)[0] ?? null;
+}
+
+function splitTranscriptIntoTtsChunks(transcript: string, maxChars: number): string[] {
   const normalized = transcript.trim().replace(/\s+/g, " ");
+  if (!normalized) {
+    return [];
+  }
+
+  const sentencePieces = normalized.match(/[^.!?]+[.!?]?/g) ?? [normalized];
+  const chunks: string[] = [];
+  let current = "";
+
+  const pushCurrent = () => {
+    if (current.trim()) {
+      chunks.push(current.trim());
+    }
+    current = "";
+  };
+
+  for (const sentence of sentencePieces) {
+    const piece = sentence.trim();
+    if (!piece) {
+      continue;
+    }
+
+    if (piece.length > maxChars) {
+      pushCurrent();
+      const words = piece.split(/\s+/).filter(Boolean);
+      let wordChunk = "";
+      for (const word of words) {
+        const candidate = wordChunk ? `${wordChunk} ${word}` : word;
+        if (candidate.length <= maxChars) {
+          wordChunk = candidate;
+          continue;
+        }
+
+        if (wordChunk) {
+          chunks.push(wordChunk.trim());
+        }
+        wordChunk = word;
+      }
+
+      if (wordChunk.trim()) {
+        chunks.push(wordChunk.trim());
+      }
+      continue;
+    }
+
+    const candidate = current ? `${current} ${piece}` : piece;
+    if (candidate.length <= maxChars) {
+      current = candidate;
+      continue;
+    }
+
+    pushCurrent();
+    current = piece;
+  }
+
+  pushCurrent();
+  return chunks;
+}
+
+function buildFallbackAudioUrls(transcript: string): string[] {
+  const chunks = splitTranscriptIntoTtsChunks(transcript, GOOGLE_TTS_MAX_CHARS);
+  if (chunks.length === 0) {
+    return [];
+  }
+
+  const total = chunks.length;
+  return chunks.map((chunk, index) => {
+    const query = encodeURIComponent(chunk);
+    return [
+      "https://translate.google.com/translate_tts?ie=UTF-8",
+      "client=tw-ob",
+      "tl=en",
+      "ttsspeed=0.95",
+      `q=${query}`,
+      `idx=${index}`,
+      `total=${total}`,
+      `textlen=${chunk.length}`,
+    ].join("&");
+  });
+}
+
+function normalizeComparableText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractIndexFromExplanation(explanation: string, optionsLength: number): number | null {
+  const normalized = normalizeComparableText(explanation);
   if (!normalized) {
     return null;
   }
 
-  const preview = normalized.slice(0, 200);
-  return `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&q=${encodeURIComponent(preview)}`;
+  const patterns = [
+    /(?:dap an dung|dap an|correct answer)\s*(?:la|is|:)?\s*([a-d])\b/i,
+    /\b([a-d])\b\s*(?:la\s*dap\s*an\s*dung|is\s*correct)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (match?.[1]) {
+      const index = match[1].toUpperCase().charCodeAt(0) - 65;
+      if (index >= 0 && index < optionsLength) {
+        return index;
+      }
+    }
+  }
+
+  return null;
+}
+
+function scoreOptionEvidenceFromTranscript(option: string, transcript: string): number {
+  const normalizedTranscript = normalizeComparableText(transcript);
+  const normalizedOption = normalizeComparableText(option);
+  if (!normalizedTranscript || !normalizedOption) {
+    return 0;
+  }
+
+  let score = 0;
+  if (normalizedTranscript.includes(normalizedOption)) {
+    score += 10;
+  }
+
+  const tokens = normalizedOption
+    .split(/[^a-z0-9:]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3);
+
+  const uniqueTokens = [...new Set(tokens)];
+  for (const token of uniqueTokens) {
+    if (normalizedTranscript.includes(token)) {
+      score += 1;
+    }
+  }
+
+  return score;
+}
+
+function tryResolveFromTranscript(options: string[], transcript: string): number | null {
+  if (options.length === 0 || !transcript.trim()) {
+    return null;
+  }
+
+  const scored = options.map((option, index) => ({
+    index,
+    score: scoreOptionEvidenceFromTranscript(option, transcript),
+  }));
+
+  scored.sort((a, b) => b.score - a.score);
+  const best = scored[0];
+  const second = scored[1];
+
+  if (!best || best.score <= 0) {
+    return null;
+  }
+
+  const secondScore = second?.score ?? 0;
+  if (best.score > secondScore) {
+    return best.index;
+  }
+
+  return null;
+}
+
+function refineRightOptionIndex(input: {
+  options: string[];
+  initialIndex: number;
+  explanation: string;
+  transcript: string;
+}): number {
+  const maxIndex = Math.max(0, input.options.length - 1);
+  const boundedInitial = Math.max(0, Math.min(maxIndex, input.initialIndex));
+
+  const explanationIndex = extractIndexFromExplanation(input.explanation, input.options.length);
+  if (typeof explanationIndex === "number") {
+    return explanationIndex;
+  }
+
+  const transcriptIndex = tryResolveFromTranscript(input.options, input.transcript);
+  if (typeof transcriptIndex === "number") {
+    return transcriptIndex;
+  }
+
+  return boundedInitial;
+}
+
+function normalizeExplanationAnswerLabel(explanation: string, rightOptionIndex: number): string {
+  const text = explanation.trim();
+  if (!text) {
+    return text;
+  }
+
+  const safeIndex = Math.max(0, Math.min(3, rightOptionIndex));
+  const expectedLabel = String.fromCharCode(65 + safeIndex);
+  const patterns = [
+    /([Đđ]áp\s*án\s*đúng\s*là\s*)([A-D])/,
+    /(Dap\s*an\s*dung\s*la\s*)([A-D])/i,
+    /(Correct\s*answer\s*(?:is|:)\s*)([A-D])/i,
+  ];
+
+  for (const pattern of patterns) {
+    if (pattern.test(text)) {
+      return text.replace(pattern, `$1${expectedLabel}`);
+    }
+  }
+
+  return text;
 }
 
 function countWords(value: string): number {
@@ -287,13 +520,31 @@ function buildDetailedExplanation(question: ListeningQuestion, transcript: strin
 
 function ensureQuestionExplanations(questions: ListeningQuestion[], transcript: string): ListeningQuestion[] {
   return questions.map((question) => {
-    if (!isGenericExplanation(question.ExplanationInVietnamese)) {
-      return question;
+    const rightOptionIndex = refineRightOptionIndex({
+      options: question.Options,
+      initialIndex: question.RightOptionIndex,
+      explanation: question.ExplanationInVietnamese,
+      transcript,
+    });
+
+    const harmonizedQuestion: ListeningQuestion = {
+      ...question,
+      RightOptionIndex: rightOptionIndex,
+    };
+
+    if (!isGenericExplanation(harmonizedQuestion.ExplanationInVietnamese)) {
+      return {
+        ...harmonizedQuestion,
+        ExplanationInVietnamese: normalizeExplanationAnswerLabel(
+          harmonizedQuestion.ExplanationInVietnamese,
+          harmonizedQuestion.RightOptionIndex,
+        ),
+      };
     }
 
     return {
-      ...question,
-      ExplanationInVietnamese: buildDetailedExplanation(question, transcript),
+      ...harmonizedQuestion,
+      ExplanationInVietnamese: buildDetailedExplanation(harmonizedQuestion, transcript),
     };
   });
 }
@@ -305,6 +556,7 @@ type ListeningExercise = {
   EnglishLevel: number;
   Transcript: string;
   AudioContent?: string;
+  AudioSegments?: string[];
   Questions: ListeningQuestion[];
   CreatedAt: string;
   ExpiresAt: string;
@@ -348,7 +600,7 @@ function parseJson<T>(raw: string): T | null {
   }
 }
 
-function normalizeStoredListeningQuestion(raw: unknown): ListeningQuestion | null {
+function normalizeStoredListeningQuestion(raw: unknown, transcript: string): ListeningQuestion | null {
   const record = asRecord(raw);
   if (!record) {
     return null;
@@ -373,7 +625,6 @@ function normalizeStoredListeningQuestion(raw: unknown): ListeningQuestion | nul
     options.push(`Option ${String.fromCharCode(65 + options.length)}`);
   }
 
-  const rightOptionIndex = resolveCorrectAnswerIndex(record, options);
   const explanation =
     readFirstString(record, [
       "ExplanationInVietnamese",
@@ -381,6 +632,12 @@ function normalizeStoredListeningQuestion(raw: unknown): ListeningQuestion | nul
       "Explanation",
       "explanation",
     ]) || "";
+  const rightOptionIndex = refineRightOptionIndex({
+    options,
+    initialIndex: resolveCorrectAnswerIndex(record, options),
+    explanation,
+    transcript,
+  });
 
   return {
     Question: question,
@@ -396,8 +653,10 @@ function parseStoredListeningExercise(exerciseId: string, rawPayload: string): L
     return null;
   }
 
+  const transcript = String(payload.transcript ?? "");
+
   const questions = (Array.isArray(payload.questions) ? payload.questions : [])
-    .map((question) => normalizeStoredListeningQuestion(question))
+    .map((question) => normalizeStoredListeningQuestion(question, transcript))
     .filter((question): question is ListeningQuestion => Boolean(question));
 
   if (questions.length === 0) {
@@ -416,9 +675,14 @@ function parseStoredListeningExercise(exerciseId: string, rawPayload: string): L
     Title: String(payload.title ?? "Listening practice"),
     Genre: String(payload.genre ?? "General"),
     EnglishLevel: normalizeEnglishLevel(Number(payload.englishLevel ?? 1)),
-    Transcript: String(payload.transcript ?? ""),
+    Transcript: transcript,
     ...(payload.audioContent ? { AudioContent: String(payload.audioContent) } : {}),
-    Questions: ensureQuestionExplanations(questions, String(payload.transcript ?? "")),
+    ...(Array.isArray(payload.audioSegments) && payload.audioSegments.length > 0
+      ? { AudioSegments: payload.audioSegments.map((item) => String(item)).filter((item) => item.trim().length > 0) }
+      : payload.audioContent
+        ? { AudioSegments: [String(payload.audioContent)] }
+        : {}),
+    Questions: ensureQuestionExplanations(questions, transcript),
     CreatedAt: createdAt,
     ExpiresAt: expiresAt,
   };
@@ -433,7 +697,7 @@ function resolveProvider(aiModel: number | undefined): AiProvider {
   return "openai";
 }
 
-function normalizeAiQuestion(raw: ListeningQuestionAiPayload | unknown, questionIndex: number): ListeningQuestion | null {
+function normalizeAiQuestion(raw: ListeningQuestionAiPayload | unknown, transcript: string): ListeningQuestion | null {
   const record = asRecord(raw);
   if (!record) {
     return null;
@@ -455,8 +719,6 @@ function normalizeAiQuestion(raw: ListeningQuestionAiPayload | unknown, question
     options.push(`Option ${String.fromCharCode(65 + options.length)}`);
   }
 
-  const correctIndex = resolveCorrectAnswerIndex(record, options);
-
   const explanation =
     readFirstString(record, [
       "explanationInVietnamese",
@@ -466,6 +728,12 @@ function normalizeAiQuestion(raw: ListeningQuestionAiPayload | unknown, question
       "reason",
       "Reason",
     ]) || "";
+  const correctIndex = refineRightOptionIndex({
+    options,
+    initialIndex: resolveCorrectAnswerIndex(record, options),
+    explanation,
+    transcript,
+  });
 
   return {
     Question: questionText,
@@ -514,7 +782,7 @@ async function generateListeningFromAi(input: {
     const rawQuestions = normalizedPayload.questions;
     const normalizedQuestions = rawQuestions
       .slice(0, totalQuestions)
-      .map((question, index) => normalizeAiQuestion(question, index))
+      .map((question) => normalizeAiQuestion(question, transcript))
       .filter((question): question is ListeningQuestion => Boolean(question));
 
     const issues: string[] = [];
@@ -579,7 +847,8 @@ export async function generateListeningExercise(input: {
   const genreLabel = getGenreLabel(input.Genre);
   const englishLevel = normalizeEnglishLevel(Number(input.EnglishLevel));
   const generated = await generateListeningFromAi({ ...input, TotalQuestions: totalQuestions });
-  const audioContent = buildFallbackAudioUrl(generated.Transcript);
+  const audioSegments = buildFallbackAudioUrls(generated.Transcript);
+  const audioContent = audioSegments[0] ?? null;
 
   const exercise: ListeningExercise = {
     ExerciseId: temporaryExerciseId,
@@ -588,6 +857,7 @@ export async function generateListeningExercise(input: {
     EnglishLevel: englishLevel,
     Transcript: generated.Transcript,
     ...(audioContent ? { AudioContent: audioContent } : {}),
+    ...(audioSegments.length > 0 ? { AudioSegments: audioSegments } : {}),
     Questions: generated.Questions,
     CreatedAt: now.toISOString(),
     ExpiresAt: expiresAt.toISOString(),
@@ -605,6 +875,7 @@ export async function generateListeningExercise(input: {
       genre: genreLabel,
       totalQuestions: exercise.Questions.length,
       audioContent: exercise.AudioContent ?? null,
+      audioSegments: exercise.AudioSegments ?? [],
       audioFilePath: null,
       createdAt: now,
       expiresAt,
@@ -687,6 +958,7 @@ export async function gradeListeningExercise(input: {
     Title: exercise.Title,
     Transcript: exercise.Transcript,
     AudioContent: exercise.AudioContent,
+    AudioSegments: exercise.AudioSegments,
     TotalQuestions: feedback.length,
     CorrectAnswers: correctAnswers,
     Score: score,
@@ -694,30 +966,39 @@ export async function gradeListeningExercise(input: {
   };
 
   if (appConfig.db.enabled && Number.isInteger(parsedExerciseId) && parsedExerciseId > 0) {
-    const effectiveNguoiDungId =
-      nguoiDungId ?? (await exerciseRepository.resolveNguoiDungIdByTaiKhoanId(input.requestedByTaiKhoanId));
+    const details = feedback.map((item, index) => ({
+      questionOrder: index + 1,
+      questionType: "listening",
+      userAnswer:
+        typeof item.SelectedOptionIndex === "number" && item.SelectedOptionIndex >= 0
+          ? String(item.Options[item.SelectedOptionIndex] ?? "")
+          : null,
+      correctAnswer: String(item.Options[item.RightOptionIndex] ?? ""),
+      isCorrect: item.IsCorrect,
+      scorePerQuestion:
+        feedback.length > 0 && item.IsCorrect
+          ? Math.round((10000 / feedback.length)) / 100
+          : 0,
+      note: item.ExplanationInVietnamese,
+    }));
 
-    if (effectiveNguoiDungId) {
-      const stored = await exerciseRepository.getExerciseById(parsedExerciseId, effectiveNguoiDungId);
-      if (stored && stored.kieuBaiTap === "listening") {
-        const details = feedback.map((item, index) => ({
-          questionOrder: index + 1,
-          questionType: "listening",
-          userAnswer:
-            typeof item.SelectedOptionIndex === "number" && item.SelectedOptionIndex >= 0
-              ? String(item.Options[item.SelectedOptionIndex] ?? "")
-              : null,
-          correctAnswer: String(item.Options[item.RightOptionIndex] ?? ""),
-          isCorrect: item.IsCorrect,
-          scorePerQuestion:
-            feedback.length > 0 && item.IsCorrect
-              ? Math.round((10000 / feedback.length)) / 100
-              : 0,
-          note: item.ExplanationInVietnamese,
-        }));
+    const completedAt = new Date();
+    const incorrectAnswers = Math.max(0, feedback.length - correctAnswers);
 
-        const completedAt = new Date();
-        const incorrectAnswers = Math.max(0, feedback.length - correctAnswers);
+    // Persist attempt in background so grading response is not blocked by slow DB writes.
+    void (async () => {
+      try {
+        const effectiveNguoiDungId =
+          nguoiDungId ?? (await exerciseRepository.resolveNguoiDungIdByTaiKhoanId(input.requestedByTaiKhoanId));
+
+        if (!effectiveNguoiDungId) {
+          return;
+        }
+
+        const stored = await exerciseRepository.getExerciseById(parsedExerciseId, effectiveNguoiDungId);
+        if (!stored || stored.kieuBaiTap !== "listening") {
+          return;
+        }
 
         await exerciseRepository.addCompletion({
           nguoiDungId: effectiveNguoiDungId,
@@ -738,8 +1019,14 @@ export async function gradeListeningExercise(input: {
           completedAt,
           details,
         });
+      } catch (error) {
+        logger.warn("Listening completion persistence failed", {
+          exerciseId: parsedExerciseId,
+          requestedByTaiKhoanId: input.requestedByTaiKhoanId,
+          error: error instanceof Error ? error.message : "unknown_error",
+        });
       }
-    }
+    })();
   }
 
   return response;

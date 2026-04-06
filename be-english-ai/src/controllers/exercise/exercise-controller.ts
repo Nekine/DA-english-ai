@@ -64,7 +64,19 @@ export async function saveSentenceWritingHandler(req: Request, res: Response): P
     title?: string;
     topic?: string;
     content?: string;
-    sentences?: Array<{ id: number; vietnamese: string; correctAnswer: string }>;
+    sentences?: Array<{
+      id: number;
+      vietnamese: string;
+      correctAnswer: string;
+      suggestion?: {
+        vocabulary?: Array<{ word: string; meaning: string }>;
+        structure?: string;
+      };
+      Suggestion?: {
+        Vocabulary?: Array<{ Word: string; Meaning: string }>;
+        Structure?: string;
+      };
+    }>;
     level?: string;
     category?: string;
     estimatedMinutes?: number;

@@ -5,24 +5,45 @@ type MultipleChoiceQuestion = {
   Question: string;
   Options: string[];
   RightOptionIndex: number;
+  ExplanationInVietnamese?: string;
+  explanation?: string;
 };
 
 type SentenceWritingItem = {
   id: number;
   vietnamese: string;
   correctAnswer: string;
+  suggestion?: {
+    vocabulary?: Array<{ word: string; meaning: string }>;
+    structure?: string;
+  };
+  Suggestion?: {
+    Vocabulary?: Array<{ Word: string; Meaning: string }>;
+    Structure?: string;
+  };
 };
 
 type StoredGrammarQuestion = {
   q?: string;
   question?: string;
   options?: string[];
+  ExplanationInVietnamese?: string;
+  explanationInVietnamese?: string;
+  explanation?: string;
 };
 
 type StoredSentenceWritingQuestion = {
   id?: number;
   vietnamese?: string;
   correctAnswer?: string;
+  suggestion?: {
+    vocabulary?: Array<{ word?: string; meaning?: string }>;
+    structure?: string;
+  };
+  Suggestion?: {
+    Vocabulary?: Array<{ Word?: string; Meaning?: string }>;
+    Structure?: string;
+  };
 };
 
 type SentenceWritingUserAnswer = {
@@ -89,7 +110,18 @@ export async function saveAiExercise(input: {
   }
 
   const questionsJson = JSON.stringify(
-    input.questions.map((q) => ({ q: q.Question, options: q.Options })),
+    input.questions.map((q) => {
+      const explanation = String(q.ExplanationInVietnamese ?? q.explanation ?? "").trim();
+      const normalizedExplanation =
+        explanation || `Đáp án đúng là ${optionIndexToLetter(q.RightOptionIndex)} vì phù hợp nhất với ngữ cảnh và cấu trúc câu.`;
+      return {
+        q: q.Question,
+        options: q.Options,
+        ExplanationInVietnamese: normalizedExplanation,
+        explanationInVietnamese: normalizedExplanation,
+        explanation: normalizedExplanation,
+      };
+    }),
   );
   const correctAnswersJson = JSON.stringify(
     input.questions.map((q) => optionIndexToLetter(q.RightOptionIndex)),
@@ -147,11 +179,47 @@ export async function saveSentenceWritingExercise(input: {
   }
 
   const sentencesJson = JSON.stringify(
-    input.sentences.map((s) => ({
-      id: s.id,
-      vietnamese: s.vietnamese,
-      correctAnswer: s.correctAnswer,
-    })),
+    input.sentences.map((s) => {
+      const normalizedVocabulary = Array.isArray(s.suggestion?.vocabulary)
+        ? s.suggestion.vocabulary
+            .map((item) => ({
+              word: String(item?.word ?? "").trim(),
+              meaning: String(item?.meaning ?? "").trim(),
+            }))
+            .filter((item) => item.word.length > 0 && item.meaning.length > 0)
+        : Array.isArray(s.Suggestion?.Vocabulary)
+          ? s.Suggestion.Vocabulary
+              .map((item) => ({
+                word: String(item?.Word ?? "").trim(),
+                meaning: String(item?.Meaning ?? "").trim(),
+              }))
+              .filter((item) => item.word.length > 0 && item.meaning.length > 0)
+          : [];
+
+      const normalizedStructure =
+        String(s.suggestion?.structure ?? s.Suggestion?.Structure ?? "").trim();
+
+      return {
+        id: s.id,
+        vietnamese: s.vietnamese,
+        correctAnswer: s.correctAnswer,
+        ...(normalizedVocabulary.length > 0 || normalizedStructure.length > 0
+          ? {
+              suggestion: {
+                vocabulary: normalizedVocabulary,
+                structure: normalizedStructure,
+              },
+              Suggestion: {
+                Vocabulary: normalizedVocabulary.map((item) => ({
+                  Word: item.word,
+                  Meaning: item.meaning,
+                })),
+                Structure: normalizedStructure,
+              },
+            }
+          : {}),
+      };
+    }),
   );
 
   const exerciseId = await exerciseRepository.saveSentenceWriting({

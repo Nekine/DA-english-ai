@@ -25,6 +25,28 @@ const ReadingExerciseCard = ({ exercise, onBack }: ReadingExerciseCardProps) => 
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [score, setScore] = useState(0);
 
+  const normalizeQuestionText = (text: string | undefined): string => {
+    const raw = String(text ?? "").trim();
+    if (!raw) {
+      return "Question text not available";
+    }
+
+    // Remove duplicated leading numbering like "1. ...", "Question 1: ...", "Câu 1: ..."
+    const cleaned = raw.replace(/^(?:question|cau|câu)?\s*\d+\s*[\.)\]:-]\s*/i, "").trim();
+    return cleaned || raw;
+  };
+
+  const normalizeOptionText = (text: string | undefined): string => {
+    const raw = String(text ?? "").trim();
+    if (!raw) {
+      return "";
+    }
+
+    // Avoid showing "A. A. ..." when AI already prefixes option labels.
+    const cleaned = raw.replace(/^[A-D]\s*[\.)\]:-]\s*/i, "").trim();
+    return cleaned || raw;
+  };
+
   const handleSubmit = () => {
     const questions = exercise.questions ?? [];
     let correctCount = 0;
@@ -124,6 +146,7 @@ const ReadingExerciseCard = ({ exercise, onBack }: ReadingExerciseCardProps) => 
           questions.map((question, questionIndex) => {
           const isCorrect = isSubmitted && answers[questionIndex] === (question.correctAnswer ?? -1);
           const isIncorrect = isSubmitted && answers[questionIndex] !== (question.correctAnswer ?? -1);
+          const displayQuestionText = normalizeQuestionText(question.question);
 
           return (
             <Card
@@ -139,7 +162,7 @@ const ReadingExerciseCard = ({ exercise, onBack }: ReadingExerciseCardProps) => 
               <div className="flex items-start gap-3 mb-4">
                 <span className="font-semibold text-lg">{questionIndex + 1}.</span>
                 <div className="flex-1">
-                  <p className="font-medium mb-4">{question.question ?? 'Question text not available'}</p>
+                  <p className="font-medium mb-4">{displayQuestionText}</p>
                   <RadioGroup
                     value={answers[questionIndex]?.toString()}
                     onValueChange={(value) =>
@@ -169,7 +192,7 @@ const ReadingExerciseCard = ({ exercise, onBack }: ReadingExerciseCardProps) => 
                             htmlFor={`${questionIndex}-${optionIndex}`}
                             className="flex-1 cursor-pointer"
                           >
-                            {String.fromCharCode(65 + optionIndex)}. {option}
+                            {String.fromCharCode(65 + optionIndex)}. {normalizeOptionText(option)}
                           </Label>
                           {isSubmitted && isThisCorrect && (
                             <CheckCircle2 className="h-5 w-5 text-green-600" />

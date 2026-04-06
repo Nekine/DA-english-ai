@@ -53,10 +53,10 @@ function getModel(provider: AiProvider): string {
   }
 
   if (provider === "openai") {
-    return process.env.OPENAI_MODEL?.trim() || "gpt-5.1";
+    return process.env.OPENAI_MODEL?.trim() || "gpt-5.4-mini";
   }
 
-  return "grok-4.2";
+  return "grok-4-fast";
 }
 
 function getModelCandidates(provider: AiProvider): string[] {
@@ -66,8 +66,8 @@ function getModelCandidates(provider: AiProvider): string[] {
     provider === "gemini"
       ? ["gemini-3-flash-preview"]
       : provider === "openai"
-        ? ["gpt-5.1", "gpt-4o-mini"]
-        : ["grok-4.2"];
+        ? ["gpt-5.4-mini"]
+        : ["grok-4-fast"];
 
   const unique = new Set<string>();
   for (const model of [primary, ...defaults]) {

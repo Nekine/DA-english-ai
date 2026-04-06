@@ -444,12 +444,20 @@ const Exercises: React.FC = () => {
   // Progress percentage calculation
   const progressPercentage = (currentQuestion / totalQuestions) * 100;
 
+  const normalizeQuestionText = (value: string): string => {
+    return value
+      .replace(/^\s*(?:question|cau)\s*\d+\s*[:.)-]?\s*/i, "")
+      .replace(/^\s*\d+\s*[:.)-]\s*/, "")
+      .trim();
+  };
+
   // Current question data
   const question = exerciseSet?.Questions?.[currentQuestion - 1] || {
     Question: "Đang tải câu hỏi...",
     Options: [],
     ExplanationInVietnamese: ""
   };
+  const questionText = normalizeQuestionText(String(question.Question ?? ""));
 
   // Render submission result
   if (submissionResult) {
@@ -480,7 +488,7 @@ const Exercises: React.FC = () => {
                     : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
                     }`}
                 >
-                  <p className="font-medium mb-2 text-foreground">{q.Question}</p>
+                  <p className="font-medium mb-2 text-foreground">Câu {index + 1}. {normalizeQuestionText(String(q.Question ?? ''))}</p>
                   <p className="text-sm text-muted-foreground mb-3">
                     Bạn chọn: <span className="font-medium text-foreground">{answers[index + 1] || 'Chưa trả lời'}</span>
                   </p>
@@ -672,7 +680,9 @@ const Exercises: React.FC = () => {
             </div>
 
             <Card className="p-6 mb-6">
-              <h3 className="text-xl font-semibold mb-4 text-foreground">{question.Question}</h3>
+              <h3 className="text-xl font-semibold mb-4 text-foreground">
+                Câu {currentQuestion}. {questionText || 'Đang tải câu hỏi...'}
+              </h3>
               <div className="space-y-3">
                 {Array.isArray(question.Options) && question.Options.map((option, index) => (
                   <div
