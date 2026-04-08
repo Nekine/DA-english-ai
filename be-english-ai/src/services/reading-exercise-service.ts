@@ -47,6 +47,47 @@ type ReadingQuestion = {
 
 type UnknownRecord = Record<string, unknown>;
 
+function extractAnswerIndexFromExplanation(explanation: string, optionsLength: number): number | null {
+  const normalized = explanation
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  const match = normalized.match(/(?:dap\s*an\s*dung\s*la|correct\s*answer\s*(?:is|:))\s*([a-d])/i);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const index = match[1].toUpperCase().charCodeAt(0) - 65;
+  if (index < 0 || index >= optionsLength) {
+    return null;
+  }
+
+  return index;
+}
+
+function normalizeExplanationAnswerLabel(explanation: string, correctAnswer: number): string {
+  const text = explanation.trim();
+  if (!text) {
+    return text;
+  }
+
+  const expectedLabel = String.fromCharCode(65 + Math.max(0, Math.min(3, correctAnswer)));
+  const patterns = [
+    /([Đđ]áp\s*án\s*đúng\s*là\s*)([A-D])/,
+    /(Dap\s*an\s*dung\s*la\s*)([A-D])/i,
+    /(Correct\s*answer\s*(?:is|:)\s*)([A-D])/i,
+  ];
+
+  for (const pattern of patterns) {
+    if (pattern.test(text)) {
+      return text.replace(pattern, `$1${expectedLabel}`);
+    }
+  }
+
+  return text;
+}
+
 function parseQuestionsJson(raw: string): ReadingQuestion[] {
   try {
     const data = JSON.parse(raw) as Array<{
@@ -60,23 +101,35 @@ function parseQuestionsJson(raw: string): ReadingQuestion[] {
       explanationInVietnamese?: string;
     }>;
 
-    return data.map((item) => ({
-      question: item.questionText ?? item.question ?? "",
-      options: Array.isArray(item.options) ? item.options : [],
-      correctAnswer: Number(item.correctAnswer ?? 0),
-      ...((item.explanation
+    return data.map((item) => {
+      const options = Array.isArray(item.options) ? item.options : [];
+      const numericAnswer = Number(item.correctAnswer ?? 0);
+      const boundedAnswer = Number.isFinite(numericAnswer)
+        ? Math.max(0, Math.min(Math.max(0, options.length - 1), Math.trunc(numericAnswer)))
+        : 0;
+
+      const rawExplanation =
+        item.explanation
         ?? item.Explanation
         ?? item.ExplanationInVietnamese
-        ?? item.explanationInVietnamese)
-        ? {
-            explanation:
-              item.explanation
-              ?? item.Explanation
-              ?? item.ExplanationInVietnamese
-              ?? item.explanationInVietnamese,
-          }
-        : {}),
-    }));
+        ?? item.explanationInVietnamese;
+
+      const explanationIndex = rawExplanation
+        ? extractAnswerIndexFromExplanation(String(rawExplanation), options.length)
+        : null;
+      const correctAnswer = typeof explanationIndex === "number" ? explanationIndex : boundedAnswer;
+
+      return {
+        question: item.questionText ?? item.question ?? "",
+        options,
+        correctAnswer,
+        ...(rawExplanation
+          ? {
+              explanation: normalizeExplanationAnswerLabel(String(rawExplanation), correctAnswer),
+            }
+          : {}),
+      };
+    });
   } catch {
     return [];
   }
@@ -408,7 +461,13 @@ function buildReadingQuestionInput(
     question,
     ["explanation", "Explanation", "reason", "Reason", "ExplanationInVietnamese", "explanationInVietnamese"],
   );
-  const explanation = explanationFromAi || buildReadingExplanation(questionText, options, correctAnswer, content);
+  const explanationIndex = explanationFromAi
+    ? extractAnswerIndexFromExplanation(explanationFromAi, options.length)
+    : null;
+  const finalCorrectAnswer = typeof explanationIndex === "number" ? explanationIndex : correctAnswer;
+  const explanation = explanationFromAi
+    ? normalizeExplanationAnswerLabel(explanationFromAi, finalCorrectAnswer)
+    : buildReadingExplanation(questionText, options, finalCorrectAnswer, content);
   const optionA = options[0] ?? "Option A";
   const optionB = options[1] ?? "Option B";
   const optionC = options[2] ?? "Option C";
@@ -437,7 +496,9 @@ function buildReadingQuestionInput(
       optionC: repaired[2] ?? optionC,
       optionD: repaired[3] ?? optionD,
       correctAnswer: repairedCorrectAnswer,
-      explanation: explanationFromAi || buildReadingExplanation(questionText, repaired, repairedCorrectAnswer, content),
+      explanation: explanationFromAi
+        ? normalizeExplanationAnswerLabel(explanationFromAi, repairedCorrectAnswer)
+        : buildReadingExplanation(questionText, repaired, repairedCorrectAnswer, content),
     };
   }
 
@@ -447,7 +508,7 @@ function buildReadingQuestionInput(
     optionB,
     optionC,
     optionD,
-    correctAnswer,
+    correctAnswer: finalCorrectAnswer,
     explanation,
   };
 }

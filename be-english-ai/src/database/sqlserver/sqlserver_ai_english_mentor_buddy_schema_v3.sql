@@ -156,6 +156,9 @@ CREATE TABLE dbo.BaiTapAI (
 );
 GO
 
+select * from dbo.BaiTapAI
+delete from dbo.BaiTapAI
+
 CREATE INDEX IX_BaiTapAI_NguoiDungId ON dbo.BaiTapAI(NguoiDungId);
 CREATE INDEX IX_BaiTapAI_KieuBaiTap ON dbo.BaiTapAI(KieuBaiTap);
 CREATE INDEX IX_BaiTapAI_TrinhDo ON dbo.BaiTapAI(TrinhDo);
@@ -312,6 +315,8 @@ ON DELETE NO ACTION,
     CONSTRAINT CK_BaiLamBaiTapAI_KetQuaChamJson CHECK (KetQuaChamJson IS NULL OR ISJSON(KetQuaChamJson) = 1)
 );
 GO
+
+select * from dbo.BaiLamBaiTapAI
 
 CREATE INDEX IX_BaiLamBaiTapAI_NguoiDungId ON dbo.BaiLamBaiTapAI(NguoiDungId);
 CREATE INDEX IX_BaiLamBaiTapAI_BaiTapAIId ON dbo.BaiLamBaiTapAI(BaiTapAIId);

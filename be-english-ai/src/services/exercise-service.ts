@@ -1,6 +1,8 @@
 import { exerciseRepository } from "../database/repositories/exercise-repository";
 import { appConfig } from "../config";
 
+type CreatedExerciseKind = "grammar" | "writing";
+
 type MultipleChoiceQuestion = {
   Question: string;
   Options: string[];
@@ -27,6 +29,9 @@ type StoredGrammarQuestion = {
   q?: string;
   question?: string;
   options?: string[];
+  Options?: string[];
+  RightOptionIndex?: number;
+  rightOptionIndex?: number;
   ExplanationInVietnamese?: string;
   explanationInVietnamese?: string;
   explanation?: string;
@@ -44,6 +49,16 @@ type StoredSentenceWritingQuestion = {
     Vocabulary?: Array<{ Word?: string; Meaning?: string }>;
     Structure?: string;
   };
+};
+
+type StoredExercisePayload = {
+  title?: string;
+  topic?: string;
+  level?: string;
+  timeLimit?: number;
+  questions?: StoredGrammarQuestion[];
+  correctAnswers?: string[];
+  sentences?: StoredSentenceWritingQuestion[];
 };
 
 type SentenceWritingUserAnswer = {
@@ -82,6 +97,249 @@ function letterToIndex(letter: string): number {
   }
 
   return code - 65;
+}
+
+function parsePayload(raw: string): StoredExercisePayload | null {
+  try {
+    const parsed = JSON.parse(raw) as StoredExercisePayload;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractAnswerIndexFromExplanation(explanation: string, optionsLength: number): number | null {
+  const normalized = explanation
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  const match = normalized.match(/(?:dap\s*an\s*dung\s*la|correct\s*answer\s*(?:is|:))\s*([a-d])/i);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const index = match[1].toUpperCase().charCodeAt(0) - 65;
+  if (index < 0 || index >= optionsLength) {
+    return null;
+  }
+
+  return index;
+}
+
+function normalizeExplanationAnswerLabel(explanation: string, rightOptionIndex: number): string {
+  const text = explanation.trim();
+  if (!text) {
+    return text;
+  }
+
+  const expectedLabel = optionIndexToLetter(rightOptionIndex);
+  const patterns = [
+    /([Đđ]áp\s*án\s*đúng\s*là\s*)([A-D])/,
+    /(Dap\s*an\s*dung\s*la\s*)([A-D])/i,
+    /(Correct\s*answer\s*(?:is|:)\s*)([A-D])/i,
+  ];
+
+  for (const pattern of patterns) {
+    if (pattern.test(text)) {
+      return text.replace(pattern, `$1${expectedLabel}`);
+    }
+  }
+
+  return text;
+}
+
+function normalizeGrammarQuestionForPractice(
+  question: StoredGrammarQuestion,
+  correctAnswers: string[],
+  index: number,
+): MultipleChoiceQuestion {
+  const optionsRaw = Array.isArray(question.options)
+    ? question.options
+    : Array.isArray(question.Options)
+      ? question.Options
+      : [];
+  const options = optionsRaw
+    .map((option) => String(option ?? "").trim())
+    .filter((option) => option.length > 0)
+    .slice(0, 4);
+
+  while (options.length < 4) {
+    options.push(`Option ${optionIndexToLetter(options.length)}`);
+  }
+
+  const byQuestionIndex = Number(question.RightOptionIndex ?? question.rightOptionIndex);
+  const byAnswerLetter = letterToIndex(String(correctAnswers[index] ?? ""));
+  const numericIndex = Number.isInteger(byQuestionIndex) ? byQuestionIndex : byAnswerLetter;
+
+  let rightOptionIndex = Number.isInteger(numericIndex)
+    ? Math.max(0, Math.min(options.length - 1, numericIndex))
+    : 0;
+
+  const rawExplanation = String(
+    question.ExplanationInVietnamese
+      ?? question.explanationInVietnamese
+      ?? question.explanation
+      ?? "",
+  ).trim();
+
+  const explanationIndex = extractAnswerIndexFromExplanation(rawExplanation, options.length);
+  if (typeof explanationIndex === "number") {
+    rightOptionIndex = explanationIndex;
+  }
+
+  const explanation = rawExplanation
+    ? normalizeExplanationAnswerLabel(rawExplanation, rightOptionIndex)
+    : `Đáp án đúng là ${optionIndexToLetter(rightOptionIndex)} vì phù hợp nhất với ngữ cảnh và cấu trúc câu.`;
+
+  return {
+    Question: String(question.q ?? question.question ?? `Question ${index + 1}`).trim(),
+    Options: options,
+    RightOptionIndex: rightOptionIndex,
+    ExplanationInVietnamese: explanation,
+  };
+}
+
+function normalizeWritingSentenceForPractice(sentence: StoredSentenceWritingQuestion, index: number): SentenceWritingItem {
+  const suggestionVocabulary = Array.isArray(sentence.suggestion?.vocabulary)
+    ? sentence.suggestion?.vocabulary
+        .map((item) => ({
+          word: String(item?.word ?? "").trim(),
+          meaning: String(item?.meaning ?? "").trim(),
+        }))
+        .filter((item) => item.word.length > 0 && item.meaning.length > 0)
+    : Array.isArray(sentence.Suggestion?.Vocabulary)
+      ? sentence.Suggestion?.Vocabulary
+          .map((item) => ({
+            word: String(item?.Word ?? "").trim(),
+            meaning: String(item?.Meaning ?? "").trim(),
+          }))
+          .filter((item) => item.word.length > 0 && item.meaning.length > 0)
+      : [];
+
+  const suggestionStructure = String(
+    sentence.suggestion?.structure
+      ?? sentence.Suggestion?.Structure
+      ?? "",
+  ).trim();
+
+  return {
+    id: Number(sentence.id ?? index + 1),
+    vietnamese: String(sentence.vietnamese ?? "").trim(),
+    correctAnswer: String(sentence.correctAnswer ?? "").trim(),
+    ...(suggestionVocabulary.length > 0 || suggestionStructure.length > 0
+      ? {
+          suggestion: {
+            vocabulary: suggestionVocabulary,
+            structure: suggestionStructure,
+          },
+          Suggestion: {
+            Vocabulary: suggestionVocabulary.map((item) => ({
+              Word: item.word,
+              Meaning: item.meaning,
+            })),
+            Structure: suggestionStructure,
+          },
+        }
+      : {}),
+  };
+}
+
+export async function listCreatedExercises(input: {
+  requestedByTaiKhoanId: number;
+  kind: CreatedExerciseKind;
+  take?: number;
+}) {
+  if (!appConfig.db.enabled) {
+    return [];
+  }
+
+  const nguoiDungId = await exerciseRepository.resolveNguoiDungIdByTaiKhoanId(input.requestedByTaiKhoanId);
+  if (!nguoiDungId) {
+    return [];
+  }
+
+  const take = Math.min(50, Math.max(1, input.take ?? 20));
+  const rows = await exerciseRepository.listCreatedExercises({
+    nguoiDungId,
+    kind: input.kind,
+    take,
+  });
+
+  return rows.map((row) => {
+    const payload = parsePayload(row.noiDungJson);
+    const totalItems = input.kind === "grammar"
+      ? (Array.isArray(payload?.questions) ? payload.questions.length : 0)
+      : (Array.isArray(payload?.sentences) ? payload.sentences.length : 0);
+
+    return {
+      exerciseId: row.exerciseId,
+      kind: input.kind,
+      title: String(payload?.title ?? row.chuDeBaiTap ?? `Exercise ${row.exerciseId}`),
+      topic: String(payload?.topic ?? row.chuDeBaiTap ?? "General"),
+      level: String(payload?.level ?? row.trinhDo ?? ""),
+      totalItems,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  });
+}
+
+export async function getCreatedExerciseForPractice(input: {
+  requestedByTaiKhoanId: number;
+  exerciseId: number;
+  kind: CreatedExerciseKind;
+}) {
+  if (!appConfig.db.enabled) {
+    return null;
+  }
+
+  const nguoiDungId = await exerciseRepository.resolveNguoiDungIdByTaiKhoanId(input.requestedByTaiKhoanId);
+  if (!nguoiDungId) {
+    return null;
+  }
+
+  const exercise = await exerciseRepository.getExerciseById(input.exerciseId, nguoiDungId);
+  if (!exercise || exercise.kieuBaiTap !== input.kind) {
+    return null;
+  }
+
+  const payload = parsePayload(exercise.noiDungJson);
+  if (!payload) {
+    return null;
+  }
+
+  if (input.kind === "grammar") {
+    const questionsRaw = Array.isArray(payload.questions) ? payload.questions : [];
+    const correctAnswers = Array.isArray(payload.correctAnswers)
+      ? payload.correctAnswers.map((item) => String(item ?? ""))
+      : [];
+    const questions = questionsRaw.map((question, index) =>
+      normalizeGrammarQuestionForPractice(question, correctAnswers, index),
+    );
+
+    return {
+      kind: "grammar" as const,
+      exerciseId: input.exerciseId,
+      title: String(payload.title ?? "Grammar Exercise"),
+      topic: String(payload.topic ?? "General"),
+      level: String(payload.level ?? "A1"),
+      timeLimit: Number(payload.timeLimit ?? 600),
+      questions,
+    };
+  }
+
+  const sentencesRaw = Array.isArray(payload.sentences) ? payload.sentences : [];
+  const sentences = sentencesRaw.map((sentence, index) => normalizeWritingSentenceForPractice(sentence, index));
+
+  return {
+    kind: "writing" as const,
+    exerciseId: input.exerciseId,
+    title: String(payload.title ?? "Sentence Writing Exercise"),
+    topic: String(payload.topic ?? "General"),
+    level: String(payload.level ?? "Intermediate"),
+    sentences,
+  };
 }
 
 export async function saveAiExercise(input: {

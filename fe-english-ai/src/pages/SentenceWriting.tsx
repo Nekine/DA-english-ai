@@ -14,14 +14,27 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { ArrowLeft, Sparkles, Loader2 } from "lucide-react";
+import { ArrowLeft, Sparkles, Loader2, History, RefreshCcw } from "lucide-react";
 import { toast } from "sonner";
 import { sentenceWritingApi } from "@/lib/api";
+
+const CREATED_EXERCISES_PAGE_SIZE = 6;
 
 const SentenceWriting = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [createdExercises, setCreatedExercises] = useState<Array<{
+    exerciseId: number;
+    title: string;
+    topic: string;
+    level: string;
+    totalItems: number;
+    createdAt: string;
+  }>>([]);
   const [aiProvider, setAiProvider] = useState<'gemini' | 'openai' | 'xai'>('openai');
   const [topicMode, setTopicMode] = useState<"suggested" | "custom">("suggested");
   const [formData, setFormData] = useState({
@@ -146,6 +159,78 @@ const SentenceWriting = () => {
       setIsGenerating(false);
     }
   };
+
+  const loadCreatedExercises = async () => {
+    try {
+      setIsHistoryLoading(true);
+      const items = await sentenceWritingApi.getCreatedExercises(25);
+      setCreatedExercises(items);
+      setHistoryPage(1);
+    } catch (error) {
+      console.error('Failed to load sentence-writing history', error);
+      toast.error('Không thể tải danh sách bài đã tạo.');
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+
+  const handleHistoryButtonClick = () => {
+    const nextState = !isHistoryOpen;
+    setIsHistoryOpen(nextState);
+    if (nextState) {
+      setHistoryPage(1);
+      void loadCreatedExercises();
+    }
+  };
+
+  const handleOpenCreatedExercise = async (exerciseId: number) => {
+    try {
+      setIsHistoryLoading(true);
+      const detail = await sentenceWritingApi.getCreatedExerciseDetail(exerciseId);
+
+      const normalizedData = {
+        sentences: detail.sentences.map((sentence) => ({
+          id: sentence.id,
+          vietnamese: sentence.vietnamese,
+          correctAnswer: sentence.correctAnswer,
+          ...(sentence.suggestion
+            ? {
+                suggestion: {
+                  vocabulary: Array.isArray(sentence.suggestion.vocabulary)
+                    ? sentence.suggestion.vocabulary.map((vocab) => ({
+                        word: vocab.word,
+                        meaning: vocab.meaning,
+                      }))
+                    : [],
+                  structure: sentence.suggestion.structure ?? '',
+                },
+              }
+            : {}),
+        })),
+      };
+
+      navigate('/sentence-practice', {
+        state: {
+          generatedData: normalizedData,
+          topic: detail.topic,
+          level: detail.level,
+          exerciseId: detail.exerciseId,
+        },
+      });
+    } catch (error) {
+      console.error('Failed to open sentence-writing exercise', error);
+      toast.error('Không thể mở bài tập đã tạo.');
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+
+  const totalHistoryPages = Math.max(1, Math.ceil(createdExercises.length / CREATED_EXERCISES_PAGE_SIZE));
+  const effectiveHistoryPage = Math.min(historyPage, totalHistoryPages);
+  const pagedCreatedExercises = createdExercises.slice(
+    (effectiveHistoryPage - 1) * CREATED_EXERCISES_PAGE_SIZE,
+    effectiveHistoryPage * CREATED_EXERCISES_PAGE_SIZE
+  );
 
   return (
     <div className="min-h-screen bg-gradient-soft">
@@ -332,6 +417,84 @@ const SentenceWriting = () => {
                 </>
               )}
             </Button>
+
+            <Button
+              className="w-full"
+              variant="outline"
+              onClick={handleHistoryButtonClick}
+              disabled={isGenerating || isHistoryLoading}
+            >
+              {isHistoryLoading ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <History className="w-4 h-4 mr-2" />
+              )}
+              {isHistoryOpen ? 'Ẩn các bài tập đã tạo' : 'Các bài tập đã tạo'}
+            </Button>
+
+            {isHistoryOpen && (
+              <div className="space-y-3 rounded-lg border p-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-semibold text-sm">Lịch sử bài viết theo câu</h4>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void loadCreatedExercises()}
+                    disabled={isHistoryLoading}
+                  >
+                    <RefreshCcw className={`w-4 h-4 ${isHistoryLoading ? 'animate-spin' : ''}`} />
+                  </Button>
+                </div>
+
+                {isHistoryLoading ? (
+                  <p className="text-sm text-muted-foreground">Đang tải lịch sử...</p>
+                ) : createdExercises.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Chưa có bài tập đã lưu.</p>
+                ) : (
+                  <div className="space-y-2 max-h-72 overflow-y-auto">
+                    {pagedCreatedExercises.map((item) => (
+                      <button
+                        type="button"
+                        key={item.exerciseId}
+                        onClick={() => void handleOpenCreatedExercise(item.exerciseId)}
+                        className="w-full rounded-md border p-3 text-left hover:bg-accent/40"
+                      >
+                        <p className="font-medium text-sm">{item.title}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Chủ đề: {item.topic} • {item.totalItems} câu • {new Date(item.createdAt).toLocaleString('vi-VN')}
+                        </p>
+                      </button>
+                    ))}
+
+                    {createdExercises.length > CREATED_EXERCISES_PAGE_SIZE && (
+                      <div className="flex items-center justify-between gap-2 pt-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setHistoryPage((prev) => Math.max(1, prev - 1))}
+                          disabled={effectiveHistoryPage === 1}
+                        >
+                          Trang trước
+                        </Button>
+                        <span className="text-xs text-muted-foreground">
+                          Trang {effectiveHistoryPage}/{totalHistoryPages}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setHistoryPage((prev) => Math.min(totalHistoryPages, prev + 1))}
+                          disabled={effectiveHistoryPage === totalHistoryPages}
+                        >
+                          Trang sau
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Info Box */}
             <div className="p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">

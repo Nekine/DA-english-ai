@@ -85,6 +85,48 @@ export interface SubmissionResult {
   feedback: string;
 }
 
+export interface CreatedExerciseSummary {
+  exerciseId: number;
+  kind: 'grammar' | 'writing';
+  title: string;
+  topic: string;
+  level: string;
+  totalItems: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatedGrammarExerciseDetail {
+  kind: 'grammar';
+  exerciseId: number;
+  title: string;
+  topic: string;
+  level: string;
+  timeLimit: number;
+  questions: Question[];
+}
+
+export interface CreatedWritingSentence {
+  id: number;
+  vietnamese: string;
+  correctAnswer: string;
+  suggestion?: {
+    vocabulary?: Array<{ word: string; meaning: string }>;
+    structure?: string;
+  };
+}
+
+export interface CreatedWritingExerciseDetail {
+  kind: 'writing';
+  exerciseId: number;
+  title: string;
+  topic: string;
+  level: string;
+  sentences: CreatedWritingSentence[];
+}
+
+export type CreatedExerciseDetail = CreatedGrammarExerciseDetail | CreatedWritingExerciseDetail;
+
 type AiProvider = 'gemini' | 'openai' | 'xai';
 
 export const exerciseService = {
@@ -269,5 +311,21 @@ export const exerciseService = {
       console.error('❌ Error submitting grammar exercise result:', error);
       throw error;
     }
+  },
+
+  async getCreatedExercises(kind: 'grammar' | 'writing', take: number = 20): Promise<CreatedExerciseSummary[]> {
+    const query = new URLSearchParams({ kind, take: String(take) }).toString();
+    const response = await apiService.get<{ success: boolean; items: CreatedExerciseSummary[] }>(`/api/exercise/created?${query}`);
+    return Array.isArray(response.items) ? response.items : [];
+  },
+
+  async getCreatedExerciseDetail(kind: 'grammar' | 'writing', exerciseId: number): Promise<CreatedExerciseDetail> {
+    const query = new URLSearchParams({ kind }).toString();
+    const response = await apiService.get<{ success: boolean; data: CreatedExerciseDetail }>(`/api/exercise/created/${exerciseId}?${query}`);
+    if (!response?.data) {
+      throw new Error('Không tìm thấy dữ liệu bài tập');
+    }
+
+    return response.data;
   }
 };

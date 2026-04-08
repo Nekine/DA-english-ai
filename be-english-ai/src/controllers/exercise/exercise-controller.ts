@@ -1,6 +1,8 @@
 import type { Request, Response } from "express";
 import { HTTP_STATUS } from "../../constants/http-status";
 import {
+  getCreatedExerciseForPractice,
+  listCreatedExercises,
   saveAiExercise,
   saveSentenceWritingExercise,
   submitAiExerciseResult,
@@ -159,4 +161,62 @@ export async function submitSentenceWritingResultHandler(req: Request, res: Resp
   }
 
   res.status(HTTP_STATUS.OK).json(result);
+}
+
+export async function listCreatedExercisesHandler(req: Request, res: Response): Promise<void> {
+  const requestedByTaiKhoanId = getAuthenticatedTaiKhoanId(req);
+  if (!Number.isInteger(requestedByTaiKhoanId) || requestedByTaiKhoanId <= 0) {
+    res.status(HTTP_STATUS.UNAUTHORIZED).json({ success: false, message: "Invalid or missing token" });
+    return;
+  }
+
+  const kind = String(req.query.kind ?? "").trim().toLowerCase();
+  if (kind !== "grammar" && kind !== "writing") {
+    res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, message: "kind must be grammar or writing" });
+    return;
+  }
+
+  const takeRaw = Number(req.query.take);
+  const take = Number.isFinite(takeRaw) ? takeRaw : undefined;
+
+  const items = await listCreatedExercises({
+    requestedByTaiKhoanId,
+    kind,
+    ...(typeof take === "number" ? { take } : {}),
+  });
+
+  res.status(HTTP_STATUS.OK).json({ success: true, items });
+}
+
+export async function getCreatedExerciseHandler(req: Request, res: Response): Promise<void> {
+  const requestedByTaiKhoanId = getAuthenticatedTaiKhoanId(req);
+  if (!Number.isInteger(requestedByTaiKhoanId) || requestedByTaiKhoanId <= 0) {
+    res.status(HTTP_STATUS.UNAUTHORIZED).json({ success: false, message: "Invalid or missing token" });
+    return;
+  }
+
+  const exerciseId = Number(req.params.id);
+  if (!Number.isInteger(exerciseId) || exerciseId <= 0) {
+    res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, message: "Invalid exercise id" });
+    return;
+  }
+
+  const kind = String(req.query.kind ?? "").trim().toLowerCase();
+  if (kind !== "grammar" && kind !== "writing") {
+    res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, message: "kind must be grammar or writing" });
+    return;
+  }
+
+  const detail = await getCreatedExerciseForPractice({
+    requestedByTaiKhoanId,
+    exerciseId,
+    kind,
+  });
+
+  if (!detail) {
+    res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, message: "Exercise not found" });
+    return;
+  }
+
+  res.status(HTTP_STATUS.OK).json({ success: true, data: detail });
 }

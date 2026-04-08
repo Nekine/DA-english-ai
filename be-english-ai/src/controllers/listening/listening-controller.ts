@@ -5,6 +5,7 @@ import { logger } from "../../utils/logger";
 import {
   generateListeningExercise,
   getListeningGenres,
+  getListeningExerciseById,
   getRecentListeningExercises,
   gradeListeningExercise,
 } from "../../services/listening-service";
@@ -75,7 +76,7 @@ export async function gradeListeningHandler(req: Request, res: Response): Promis
   });
 
   if (!result) {
-    res.status(HTTP_STATUS.NOT_FOUND).json({ message: "Khong tim thay bai nghe hoac bai da het han." });
+    res.status(HTTP_STATUS.NOT_FOUND).json({ message: "Khong tim thay bai nghe." });
     return;
   }
 
@@ -93,4 +94,30 @@ export async function getRecentListeningHandler(req: Request, res: Response): Pr
   const take = Number.isFinite(takeRaw) ? takeRaw : undefined;
   const result = await getRecentListeningExercises(requestedByTaiKhoanId, take);
   res.status(HTTP_STATUS.OK).json(result);
+}
+
+export async function getListeningByIdHandler(req: Request, res: Response): Promise<void> {
+  const requestedByTaiKhoanId = getAuthenticatedTaiKhoanId(req);
+  if (!Number.isInteger(requestedByTaiKhoanId) || requestedByTaiKhoanId <= 0) {
+    res.status(HTTP_STATUS.UNAUTHORIZED).json({ message: "Invalid or missing token" });
+    return;
+  }
+
+  const exerciseId = String(req.params.id ?? "").trim();
+  if (!exerciseId) {
+    res.status(HTTP_STATUS.BAD_REQUEST).json({ message: "Invalid exercise id" });
+    return;
+  }
+
+  const exercise = await getListeningExerciseById({
+    requestedByTaiKhoanId,
+    exerciseId,
+  });
+
+  if (!exercise) {
+    res.status(HTTP_STATUS.NOT_FOUND).json({ message: "Exercise not found" });
+    return;
+  }
+
+  res.status(HTTP_STATUS.OK).json(exercise);
 }

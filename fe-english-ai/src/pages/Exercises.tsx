@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GraduationCap, ArrowLeft, Clock, ArrowRight, Sparkles, ChevronDown, ChevronUp, Bot, Zap } from 'lucide-react';
+import { GraduationCap, ArrowLeft, Clock, ArrowRight, Sparkles, ChevronDown, ChevronUp, Bot, Zap, History, RefreshCcw, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Header from '@/components/Navbar';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/components/AuthContext';
 import {
   exerciseService,
+  CreatedExerciseSummary,
   ExerciseGenerationParams,
   ExerciseSet,
   Question,
@@ -172,6 +173,8 @@ const questionTypeOptions: QuestionTypeOption[] = [
   }
 ];
 
+const CREATED_EXERCISES_PAGE_SIZE = 6;
+
 // Question Types Selector Component
 const QuestionTypesSelector: React.FC<{
   selectedTypes: AssignmentType[];
@@ -256,6 +259,10 @@ const Exercises: React.FC = () => {
 
   const [selectedQuestionTypes, setSelectedQuestionTypes] = useState<AssignmentType[]>([AssignmentType.Grammar]);
   const [aiProvider, setAiProvider] = useState<'gemini' | 'openai' | 'xai'>('openai');
+  const [createdExercises, setCreatedExercises] = useState<CreatedExerciseSummary[]>([]);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
 
   // Timer effect
   useEffect(() => {
@@ -304,6 +311,72 @@ const Exercises: React.FC = () => {
     setSelectedAnswer(null);
     setAnswers({});
     setSavedExerciseId(null);
+  };
+
+  const loadCreatedExercises = async () => {
+    try {
+      setIsHistoryLoading(true);
+      const items = await exerciseService.getCreatedExercises('grammar', 25);
+      setCreatedExercises(items);
+      setHistoryPage(1);
+    } catch (error) {
+      console.error('Failed to load grammar history', error);
+      toast({
+        title: 'Không thể tải lịch sử',
+        description: 'Vui lòng thử lại sau.',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+
+  const handleHistoryButtonClick = () => {
+    const nextState = !isHistoryOpen;
+    setIsHistoryOpen(nextState);
+    if (nextState) {
+      setHistoryPage(1);
+      void loadCreatedExercises();
+    }
+  };
+
+  const handleOpenCreatedExercise = async (exerciseId: number) => {
+    try {
+      setIsLoading(true);
+      const detail = await exerciseService.getCreatedExerciseDetail('grammar', exerciseId);
+      if (detail.kind !== 'grammar') {
+        throw new Error('Invalid exercise type');
+      }
+
+      setExerciseSet({
+        Topic: detail.topic,
+        Questions: detail.questions,
+        TimeLimit: detail.timeLimit,
+      });
+      setSavedExerciseId(detail.exerciseId);
+      setTotalQuestions(detail.questions.length);
+      setCurrentQuestion(1);
+      setSelectedAnswer(null);
+      setAnswers({});
+      setSubmissionResult(null);
+      setShowExercise(true);
+      setTimeLeft(Number(detail.timeLimit) > 0 ? detail.timeLimit : 600);
+      setIsHistoryOpen(false);
+
+      toast({
+        title: 'Đã mở bài tập đã tạo',
+        description: 'Bạn có thể làm lại bài này ngay bây giờ.',
+      });
+    } catch (error) {
+      console.error('Failed to open created grammar exercise', error);
+      toast({
+        title: 'Không thể mở bài tập',
+        description: 'Bài có thể đã bị xóa hoặc không còn khả dụng.',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleCreateExercise = async () => {
@@ -443,6 +516,17 @@ const Exercises: React.FC = () => {
 
   // Progress percentage calculation
   const progressPercentage = (currentQuestion / totalQuestions) * 100;
+  const totalHistoryPages = Math.max(1, Math.ceil(createdExercises.length / CREATED_EXERCISES_PAGE_SIZE));
+  const pagedCreatedExercises = createdExercises.slice(
+    (historyPage - 1) * CREATED_EXERCISES_PAGE_SIZE,
+    historyPage * CREATED_EXERCISES_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    if (historyPage > totalHistoryPages) {
+      setHistoryPage(totalHistoryPages);
+    }
+  }, [historyPage, totalHistoryPages]);
 
   const normalizeQuestionText = (value: string): string => {
     return value
@@ -651,6 +735,86 @@ const Exercises: React.FC = () => {
               >
                 {isLoading ? 'Đang tạo bài tập...' : 'Tạo bài tập'}
               </Button>
+
+              <div className="pt-2">
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={handleHistoryButtonClick}
+                  disabled={isHistoryLoading}
+                >
+                  {isHistoryLoading ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <History className="mr-2 h-4 w-4" />
+                  )}
+                  {isHistoryOpen ? 'Ẩn các bài tập đã tạo' : 'Các bài tập đã tạo'}
+                </Button>
+              </div>
+
+              {isHistoryOpen && (
+                <Card className="p-4 mt-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="font-semibold text-foreground">Lịch sử bài ngữ pháp</p>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void loadCreatedExercises()}
+                      disabled={isHistoryLoading}
+                    >
+                      <RefreshCcw className={`h-4 w-4 ${isHistoryLoading ? 'animate-spin' : ''}`} />
+                    </Button>
+                  </div>
+
+                  {isHistoryLoading ? (
+                    <p className="text-sm text-muted-foreground">Đang tải lịch sử...</p>
+                  ) : createdExercises.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Chưa có bài tập nào đã lưu.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {pagedCreatedExercises.map((item) => (
+                        <button
+                          type="button"
+                          key={item.exerciseId}
+                          className="w-full rounded-lg border p-3 text-left hover:bg-accent/30"
+                          onClick={() => void handleOpenCreatedExercise(item.exerciseId)}
+                        >
+                          <p className="font-medium text-foreground">{item.title}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Chủ đề: {item.topic} • {item.totalItems} câu • {new Date(item.createdAt).toLocaleString('vi-VN')}
+                          </p>
+                        </button>
+                      ))}
+
+                      {createdExercises.length > CREATED_EXERCISES_PAGE_SIZE && (
+                        <div className="flex items-center justify-between gap-2 pt-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setHistoryPage((prev) => Math.max(1, prev - 1))}
+                            disabled={historyPage === 1}
+                          >
+                            Trang trước
+                          </Button>
+                          <span className="text-xs text-muted-foreground">
+                            Trang {historyPage}/{totalHistoryPages}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setHistoryPage((prev) => Math.min(totalHistoryPages, prev + 1))}
+                            disabled={historyPage === totalHistoryPages}
+                          >
+                            Trang sau
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </Card>
+              )}
             </div>
           </>
         ) : (

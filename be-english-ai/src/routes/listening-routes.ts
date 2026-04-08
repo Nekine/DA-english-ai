@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   generateListeningHandler,
+  getListeningByIdHandler,
   getListeningGenresHandler,
   getRecentListeningHandler,
   gradeListeningHandler,
@@ -16,3 +17,4 @@ listeningRoutes.get("/Genres", asyncHandler(getListeningGenresHandler));
 listeningRoutes.post("/Generate", asyncHandler(generateListeningHandler));
 listeningRoutes.post("/Grade", asyncHandler(gradeListeningHandler));
 listeningRoutes.get("/Recent", asyncHandler(getRecentListeningHandler));
+listeningRoutes.get("/:id", asyncHandler(getListeningByIdHandler));

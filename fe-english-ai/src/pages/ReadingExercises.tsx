@@ -18,6 +18,7 @@ import { useNavigate } from "react-router-dom";
 
 type Level = 'Beginner' | 'Intermediate' | 'Advanced';
 type Type = 'Part 5' | 'Part 6' | 'Part 7';
+const CREATED_EXERCISES_PAGE_SIZE = 6;
 
 const suggestedTopics = [
   "Business Meeting",
@@ -42,6 +43,8 @@ const ReadingExercises = () => {
   const [level, setLevel] = useState<Level>("Intermediate");
   const [type, setType] = useState<Type>("Part 7");
   const [provider, setProvider] = useState<"gemini" | "openai" | "xai">("openai");
+  const [showCreatedExercises, setShowCreatedExercises] = useState(false);
+  const [createdPage, setCreatedPage] = useState(1);
 
   // Scroll to top on mount
   useEffect(() => {
@@ -60,6 +63,18 @@ const ReadingExercises = () => {
       const dateB = new Date(b.createdAt || 0).getTime();
       return dateB - dateA;
     });
+  const totalCreatedPages = Math.max(1, Math.ceil(filteredExercises.length / CREATED_EXERCISES_PAGE_SIZE));
+  const effectiveCreatedPage = Math.min(createdPage, totalCreatedPages);
+  const pagedExercises = filteredExercises.slice(
+    (effectiveCreatedPage - 1) * CREATED_EXERCISES_PAGE_SIZE,
+    effectiveCreatedPage * CREATED_EXERCISES_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    if (createdPage > totalCreatedPages) {
+      setCreatedPage(totalCreatedPages);
+    }
+  }, [createdPage, totalCreatedPages]);
 
   const handleGenerate = () => {
     if (!topic.trim()) return;
@@ -147,7 +162,13 @@ const ReadingExercises = () => {
             </p>
           </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Select value={filterLevel} onValueChange={setFilterLevel}>
+          <Select
+            value={filterLevel}
+            onValueChange={(value) => {
+              setFilterLevel(value);
+              setCreatedPage(1);
+            }}
+          >
             <SelectTrigger className="w-[140px]">
               <SelectValue placeholder="Level" />
             </SelectTrigger>
@@ -240,14 +261,31 @@ const ReadingExercises = () => {
         </div>
       </Card>
 
-      {isLoading ? (
+      <div className="flex justify-end">
+        <Button
+          variant="outline"
+          onClick={() => {
+            setShowCreatedExercises((prev) => {
+              const next = !prev;
+              if (next) {
+                setCreatedPage(1);
+              }
+              return next;
+            });
+          }}
+        >
+          {showCreatedExercises ? 'Ẩn các bài tập đã tạo' : 'Các bài tập đã tạo'}
+        </Button>
+      </div>
+
+      {showCreatedExercises && (isLoading ? (
         <div className="text-center py-12">
           <p className="text-muted-foreground">Loading exercises...</p>
         </div>
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredExercises.map((exercise, index) => (
+            {pagedExercises.map((exercise, index) => (
               <Card
                 key={exercise.exerciseId || `exercise-${index}`}
                 className="p-6 cursor-pointer hover:shadow-elegant transition-all hover:-translate-y-1"
@@ -293,6 +331,32 @@ const ReadingExercises = () => {
             ))}
           </div>
 
+          {filteredExercises.length > CREATED_EXERCISES_PAGE_SIZE && (
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setCreatedPage((prev) => Math.max(1, prev - 1))}
+                disabled={effectiveCreatedPage === 1}
+              >
+                Trang trước
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                Trang {effectiveCreatedPage}/{totalCreatedPages}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setCreatedPage((prev) => Math.min(totalCreatedPages, prev + 1))}
+                disabled={effectiveCreatedPage === totalCreatedPages}
+              >
+                Trang sau
+              </Button>
+            </div>
+          )}
+
           {filteredExercises.length === 0 && (
             <div className="text-center py-12">
               <p className="text-muted-foreground">
@@ -301,7 +365,7 @@ const ReadingExercises = () => {
             </div>
           )}
         </>
-      )}
+      ))}
       </div>
     </>
   );

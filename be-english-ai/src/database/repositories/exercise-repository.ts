@@ -45,7 +45,7 @@ export type ListeningSaveInput = {
   audioSegments: string[];
   audioFilePath: string | null;
   createdAt: Date;
-  expiresAt: Date;
+  expiresAt?: Date;
 };
 
 export type ExerciseCoreRow = {
@@ -69,6 +69,16 @@ export type ListeningRecentExerciseRow = {
   exerciseId: number;
   noiDungJson: string;
   createdAt: Date;
+};
+
+export type CreatedExerciseRow = {
+  exerciseId: number;
+  kieuBaiTap: string;
+  chuDeBaiTap: string | null;
+  trinhDo: string | null;
+  noiDungJson: string;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 export class ExerciseRepository extends BaseRepository {
@@ -284,7 +294,7 @@ export class ExerciseRepository extends BaseRepository {
       audioSegments: input.audioSegments,
       audioFilePath: input.audioFilePath,
       createdAt: input.createdAt.toISOString(),
-      expiresAt: input.expiresAt.toISOString(),
+      ...(input.expiresAt ? { expiresAt: input.expiresAt.toISOString() } : {}),
       sourceType: "ai_generated_listening",
     };
 
@@ -357,6 +367,35 @@ export class ExerciseRepository extends BaseRepository {
     `);
 
     return result.recordset[0] ?? null;
+  }
+
+  async listCreatedExercises(input: {
+    nguoiDungId: number;
+    kind: "grammar" | "writing" | "listening" | "reading";
+    take: number;
+  }): Promise<CreatedExerciseRow[]> {
+    const request = await this.createRequest();
+    this.bindInput(request, "nguoiDungId", sql.Int, input.nguoiDungId);
+    this.bindInput(request, "kind", sql.NVarChar(50), input.kind);
+    this.bindInput(request, "take", sql.Int, input.take);
+
+    const result = await request.query<CreatedExerciseRow>(`
+      SELECT TOP (@take)
+        bt.BaiTapAIId AS exerciseId,
+        bt.KieuBaiTap AS kieuBaiTap,
+        bt.ChuDeBaiTap AS chuDeBaiTap,
+        bt.TrinhDo AS trinhDo,
+        bt.NoiDungJson AS noiDungJson,
+        bt.NgayTao AS createdAt,
+        bt.NgayCapNhat AS updatedAt
+      FROM dbo.BaiTapAI bt
+      WHERE bt.NguoiDungId = @nguoiDungId
+        AND bt.KieuBaiTap = @kind
+        AND bt.TrangThaiBaiTap = N'active'
+      ORDER BY bt.NgayTao DESC
+    `);
+
+    return result.recordset;
   }
 
   async addCompletion(input: {

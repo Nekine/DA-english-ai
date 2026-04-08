@@ -136,6 +136,34 @@ export interface SubmitSentenceWritingResultResponse {
   }>;
 }
 
+export interface SentenceWritingHistoryItem {
+  exerciseId: number;
+  kind: 'writing';
+  title: string;
+  topic: string;
+  level: string;
+  totalItems: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SentenceWritingHistoryDetail {
+  kind: 'writing';
+  exerciseId: number;
+  title: string;
+  topic: string;
+  level: string;
+  sentences: Array<{
+    id: number;
+    vietnamese: string;
+    correctAnswer: string;
+    suggestion?: {
+      vocabulary?: Array<{ word: string; meaning: string }>;
+      structure?: string;
+    };
+  }>;
+}
+
 export const sentenceWritingApi = {
   generateSentences: async (data: GenerateSentencesRequest, provider: AiProvider = 'openai'): Promise<GenerateSentencesResponse> => {
     try {
@@ -269,6 +297,21 @@ export const sentenceWritingApi = {
       console.error('❌ Error submitting sentence writing result:', error);
       throw error;
     }
+  },
+
+  getCreatedExercises: async (take: number = 20): Promise<SentenceWritingHistoryItem[]> => {
+    const query = new URLSearchParams({ kind: 'writing', take: String(take) }).toString();
+    const response = await apiService.get<{ success: boolean; items: SentenceWritingHistoryItem[] }>(`/api/exercise/created?${query}`);
+    return Array.isArray(response.items) ? response.items : [];
+  },
+
+  getCreatedExerciseDetail: async (exerciseId: number): Promise<SentenceWritingHistoryDetail> => {
+    const response = await apiService.get<{ success: boolean; data: SentenceWritingHistoryDetail }>(`/api/exercise/created/${exerciseId}?kind=writing`);
+    if (!response?.data) {
+      throw new Error('Không tìm thấy dữ liệu bài luyện viết');
+    }
+
+    return response.data;
   }
 };
 

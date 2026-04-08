@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { AudioLines, BookOpen, Ear, History, Loader2, Music, Play, RefreshCcw, Sparkles, Square, Trophy, Volume2, ArrowLeft, Headphones } from 'lucide-react';
 
 const DEFAULT_QUESTION_COUNT = 5;
+const HISTORY_PAGE_SIZE = 6;
 
 const AI_MODEL_OPTIONS = [
   {
@@ -56,6 +57,7 @@ const Listening = () => {
   const [recentExercises, setRecentExercises] = useState<ListeningExerciseSummary[]>([]);
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
   const [isHistoryLoading, setIsHistoryLoading] = useState<boolean>(false);
+  const [historyPage, setHistoryPage] = useState<number>(1);
   const currentAiModelMeta = useMemo(
     () => AI_MODEL_OPTIONS.find(option => option.value === selectedAiModel),
     [selectedAiModel]
@@ -64,6 +66,14 @@ const Listening = () => {
     () => new Intl.DateTimeFormat('vi-VN', { dateStyle: 'medium', timeStyle: 'short' }),
     []
   );
+  const totalHistoryPages = useMemo(
+    () => Math.max(1, Math.ceil(recentExercises.length / HISTORY_PAGE_SIZE)),
+    [recentExercises.length]
+  );
+  const pagedRecentExercises = useMemo(() => {
+    const start = (historyPage - 1) * HISTORY_PAGE_SIZE;
+    return recentExercises.slice(start, start + HISTORY_PAGE_SIZE);
+  }, [historyPage, recentExercises]);
   const playbackSegments = useMemo(() => {
     if (!exercise) {
       return [] as string[];
@@ -83,6 +93,12 @@ const Listening = () => {
   const formatTimestamp = (value: string) => dateTimeFormatter.format(new Date(value));
 
   useEffect(() => {
+    if (historyPage > totalHistoryPages) {
+      setHistoryPage(totalHistoryPages);
+    }
+  }, [historyPage, totalHistoryPages]);
+
+  useEffect(() => {
     setActiveAudioSegment(0);
   }, [exercise?.ExerciseId]);
 
@@ -97,6 +113,7 @@ const Listening = () => {
       setIsHistoryLoading(true);
       const data = await listeningService.getRecentExercises(25);
       setRecentExercises(data);
+      setHistoryPage(1);
     } catch (error) {
       console.error('Failed to load listening history', error);
       toast({
@@ -113,6 +130,7 @@ const Listening = () => {
     const nextState = !isHistoryOpen;
     setIsHistoryOpen(nextState);
     if (nextState) {
+      setHistoryPage(1);
       void loadRecentExercises();
     }
   };
@@ -127,6 +145,33 @@ const Listening = () => {
     }
 
     void loadRecentExercises();
+  };
+
+  const handleOpenRecentExercise = async (exerciseId: string) => {
+    try {
+      setIsLoading(true);
+      const result = await listeningService.getExerciseById(exerciseId);
+      setExercise(result);
+      setActiveAudioSegment(0);
+      setAnswers({});
+      setGradeResult(null);
+      setShowTranscript(false);
+      stopTranscriptReading();
+      setIsHistoryOpen(false);
+      toast({
+        title: 'Đã mở bài nghe đã tạo',
+        description: 'Bạn có thể làm lại bài này ngay bây giờ.'
+      });
+    } catch (error) {
+      console.error('Failed to open listening exercise', error);
+      toast({
+        title: 'Không thể mở bài nghe',
+        description: 'Bài có thể không còn khả dụng.',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -521,7 +566,7 @@ const Listening = () => {
               <div className="space-y-1">
                 <p className="text-xl font-semibold text-gray-900 dark:text-gray-100">Lịch sử bài nghe gần đây</p>
                 <p className="text-sm text-muted-foreground dark:text-gray-400">
-                  Các bài đã tạo sẽ tồn tại tối đa 45 phút. Bạn có thể mở lại để chấm điểm hoặc nghe lại bất kỳ lúc nào trước khi hết hạn.
+                  Các bài đã tạo được lưu lại để bạn có thể mở lại chấm điểm hoặc nghe lại bất kỳ lúc nào.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -553,12 +598,14 @@ const Listening = () => {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {recentExercises.map((item) => {
+                  {pagedRecentExercises.map((item) => {
                     const englishLevelLabel = englishLevels[String(item.EnglishLevel)] ?? `Level ${item.EnglishLevel}`;
                     return (
-                      <div
+                      <button
+                        type="button"
                         key={item.ExerciseId}
-                        className="rounded-2xl border border-rose-100/80 bg-white/80 p-4 shadow-sm transition hover:border-rose-300 dark:border-gray-800 dark:bg-gray-900/40"
+                        className="w-full rounded-2xl border border-rose-100/80 bg-white/80 p-4 text-left shadow-sm transition hover:border-rose-300 dark:border-gray-800 dark:bg-gray-900/40"
+                        onClick={() => void handleOpenRecentExercise(item.ExerciseId)}
                       >
                         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                           <div>
@@ -579,14 +626,38 @@ const Listening = () => {
                             </Badge>
                           </div>
                         </div>
-                        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-amber-600 dark:text-amber-300">
-                          <span>Hết hạn {formatTimestamp(item.ExpiresAt)}</span>
-                          <span className="text-muted-foreground dark:text-gray-400">•</span>
+                        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground dark:text-gray-400">
                           <span className="text-muted-foreground dark:text-gray-400">ID: {item.ExerciseId}</span>
                         </div>
-                      </div>
+                      </button>
                     );
                   })}
+
+                  {recentExercises.length > HISTORY_PAGE_SIZE && (
+                    <div className="flex items-center justify-between gap-3 border-t border-gray-200 pt-3 dark:border-gray-800">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setHistoryPage((prev) => Math.max(1, prev - 1))}
+                        disabled={historyPage === 1}
+                      >
+                        Trang trước
+                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        Trang {historyPage}/{totalHistoryPages}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setHistoryPage((prev) => Math.min(totalHistoryPages, prev + 1))}
+                        disabled={historyPage === totalHistoryPages}
+                      >
+                        Trang sau
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
             </ScrollArea>

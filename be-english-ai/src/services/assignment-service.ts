@@ -247,6 +247,47 @@ function normalizeRightOptionIndex(rawValue: unknown, options: string[]): number
   return 0;
 }
 
+function extractAnswerIndexFromExplanation(explanation: string, optionsLength: number): number | null {
+  const normalized = explanation
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  const match = normalized.match(/(?:dap\s*an\s*dung\s*la|correct\s*answer\s*(?:is|:))\s*([a-d])/i);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const index = match[1].toUpperCase().charCodeAt(0) - 65;
+  if (index < 0 || index >= optionsLength) {
+    return null;
+  }
+
+  return index;
+}
+
+function normalizeExplanationAnswerLabel(explanation: string, rightOptionIndex: number): string {
+  const text = explanation.trim();
+  if (!text) {
+    return text;
+  }
+
+  const expectedLabel = String.fromCharCode(65 + Math.max(0, Math.min(3, rightOptionIndex)));
+  const patterns = [
+    /([Đđ]áp\s*án\s*đúng\s*là\s*)([A-D])/,
+    /(Dap\s*an\s*dung\s*la\s*)([A-D])/i,
+    /(Correct\s*answer\s*(?:is|:)\s*)([A-D])/i,
+  ];
+
+  for (const pattern of patterns) {
+    if (pattern.test(text)) {
+      return text.replace(pattern, `$1${expectedLabel}`);
+    }
+  }
+
+  return text;
+}
+
 function extractAssignmentItems(payload: unknown): UnknownRecord[] {
   if (Array.isArray(payload)) {
     return payload.map((item) => asRecord(item)).filter((item): item is UnknownRecord => Boolean(item));
@@ -295,7 +336,7 @@ function toQuizQuestion(record: UnknownRecord, index: number, topic: string): Qu
     readStringFromKeys(record, ["Question", "question", "QuestionText", "questionText", "q", "prompt"]) ||
     `Question ${index + 1} about ${topic}`;
 
-  const rightOptionIndex = normalizeRightOptionIndex(
+  let rightOptionIndex = normalizeRightOptionIndex(
     record.RightOptionIndex
       ?? record.rightOptionIndex
       ?? record.correctAnswer
@@ -309,7 +350,7 @@ function toQuizQuestion(record: UnknownRecord, index: number, topic: string): Qu
     options,
   );
 
-  const explanation =
+  const rawExplanation =
     readStringFromKeys(record, [
       "ExplanationInVietnamese",
       "explanationInVietnamese",
@@ -319,6 +360,13 @@ function toQuizQuestion(record: UnknownRecord, index: number, topic: string): Qu
       "Reason",
     ]) ||
     `Đáp án đúng là "${options[rightOptionIndex] ?? "A"}" vì phù hợp ngữ cảnh và cấu trúc ngữ pháp của câu.`;
+
+  const explanationIndex = extractAnswerIndexFromExplanation(rawExplanation, options.length);
+  if (typeof explanationIndex === "number") {
+    rightOptionIndex = explanationIndex;
+  }
+
+  const explanation = normalizeExplanationAnswerLabel(rawExplanation, rightOptionIndex);
 
   return {
     Question: questionText,

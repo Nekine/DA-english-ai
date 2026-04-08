@@ -8,7 +8,7 @@ JSON schema:
   "questions": [
     {
       "question": "string",
-      "options": ["string", "string", "string", "string"],
+      "options": ["string", "string", "string"],
       "correctAnswerIndex": 0,
       "explanationInVietnamese": "string"
     }
@@ -22,8 +22,8 @@ Rules:
 - Never output generic template/meta narration such as "Today you will hear...", "First, they...", "Finally, they...".
 - Match difficulty to the requested English level.
 - Questions must test comprehension of key details from the transcript.
-- Each question must have exactly 4 options.
-- correctAnswerIndex must be an integer in range 0..3.
+- Each question must have exactly 3 options (A, B, C).
+- correctAnswerIndex must be an integer in range 0..2.
 - explanationInVietnamese must explain WHY the correct option is correct based on transcript details.
 - explanationInVietnamese should cite at least one specific detail from the transcript (paraphrase is allowed).
 - explanationInVietnamese should also mention why other options are less accurate or incorrect.

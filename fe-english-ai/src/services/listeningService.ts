@@ -72,7 +72,7 @@ export interface ListeningExerciseSummary {
   EnglishLevel: number;
   TotalQuestions: number;
   CreatedAt: string;
-  ExpiresAt: string;
+  ExpiresAt?: string;
 }
 
 export const listeningService = {
@@ -112,5 +112,9 @@ export const listeningService = {
   async getRecentExercises(take?: number): Promise<ListeningExerciseSummary[]> {
     const query = typeof take === 'number' ? `?take=${take}` : '';
     return apiService.get<ListeningExerciseSummary[]>(`/api/Listening/Recent${query}`);
+  },
+
+  async getExerciseById(exerciseId: string): Promise<ListeningExerciseResult> {
+    return apiService.get<ListeningExerciseResult>(`/api/Listening/${exerciseId}`);
   },
 };
