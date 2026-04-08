@@ -18,6 +18,7 @@ export interface TestExamQuestion {
   explanation: string;
   audioText?: string;
   audioUrl?: string;
+  audioSegments?: string[];
 }
 
 export interface TestExamSummary {
@@ -40,6 +41,7 @@ export interface TestExamPart {
   status: ToeicPartStatus;
   audioText?: string;
   audioUrl?: string;
+  audioSegments?: string[];
   questions: TestExamQuestion[];
   errorMessage?: string;
 }

@@ -25,17 +25,40 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const USER_KEY = 'user';
+const LEGACY_USER_KEY = 'engace_user';
+
+function readUserFromStorage(): User | null {
+    try {
+        const primary = localStorage.getItem(USER_KEY);
+        if (primary) {
+            return JSON.parse(primary) as User;
+        }
+
+        const legacy = localStorage.getItem(LEGACY_USER_KEY);
+        if (legacy) {
+            return JSON.parse(legacy) as User;
+        }
+    } catch (error) {
+        console.error('Failed to parse stored user:', error);
+    }
+
+    return null;
+}
+
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    const [user, setUser] = useState<User | null>(null);
+    const [user, setUser] = useState<User | null>(() => readUserFromStorage());
 
     const login = (userData: User) => {
         setUser(userData);
-        localStorage.setItem('user', JSON.stringify(userData));
+        localStorage.setItem(USER_KEY, JSON.stringify(userData));
+        localStorage.setItem(LEGACY_USER_KEY, JSON.stringify(userData));
     };
 
     const logout = () => {
         setUser(null);
-        localStorage.removeItem('user');
+        localStorage.removeItem(USER_KEY);
+        authService.logout();
     };
 
     const refreshUser = async () => {
@@ -49,23 +72,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const freshUser = await authService.refreshUser();
             if (freshUser) {
                 setUser(freshUser as User);
+                localStorage.setItem(USER_KEY, JSON.stringify(freshUser));
+                localStorage.setItem(LEGACY_USER_KEY, JSON.stringify(freshUser));
             }
         } catch (error) {
             console.error('Failed to refresh user:', error);
         }
     };
-
-    useEffect(() => {
-        const storedUser = localStorage.getItem('user');
-        if (storedUser) {
-            setUser(JSON.parse(storedUser));
-        }
-        // Loại bỏ việc tự động đăng nhập admin mặc định
-        // else {
-        //     setUser(defaultAdminUser);
-        //     localStorage.setItem('user', JSON.stringify(defaultAdminUser));
-        // }
-    }, []);
 
     // Auto-refresh user data when window gains focus
     useEffect(() => {

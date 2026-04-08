@@ -1,10 +1,10 @@
 /* =========================================================
-   SQL Server schema v3 cho hệ thống học tiếng Anh cá nhân hoá
+   SQL Server schema v4 cho hệ thống học tiếng Anh cá nhân hoá
    Cập nhật theo yêu cầu:
    - Thêm LoaiTaiKhoan cho TaiKhoan
    - Thêm TrinhDoHienTai cho NguoiDung
    - Bỏ bảng LoaiBaiTapAI và ChuDeHocTap
-   - Gộp phần đề thi và chấm điểm theo hướng: DeThiAI -> PhanDeThiAI -> BaiTapPhanDeThiAI
+   - Thu gọn phần đề thi: DeThiAI lưu JSON toàn bộ đề, BaiLamDeThiAI lưu bài làm đề
    - Có bảng chính sách tài khoản để cấu hình quota basic/premium/max
    - Việt hoá tên bảng/cột để dễ đọc
    ========================================================= */
@@ -166,116 +166,71 @@ CREATE INDEX IX_BaiTapAI_NgayTao ON dbo.BaiTapAI(NgayTao);
 GO
 
 /* =========================================================
-   4) ĐỀ THI AI (ĐÁNH GIÁ TRÌNH ĐỘ / CÁC ĐỀ SAU / LUYỆN TẬP)
+   4) ĐỀ THI AI + BÀI LÀM ĐỀ THI
    =========================================================
-   Thiết kế theo kiểu:
-   DeThiAI (đề + phần làm + chấm tổng) -> PhanDeThiAI (từng phần, có dữ liệu AI + kết quả phần)
-   -> BaiTapPhanDeThiAI (từng câu/bài trong phần)
+   Thiết kế đơn giản:
+   - DeThiAI: lưu dữ liệu đề thi do AI tạo ra (JSON toàn bộ đề)
+   - BaiLamDeThiAI: lưu dữ liệu làm đề của người dùng + chấm tổng
    ========================================================= */
 
 CREATE TABLE dbo.DeThiAI (
-    DeThiAIId             INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DeThiAI PRIMARY KEY,
-    NguoiDungId           INT NOT NULL,
-    TenDeThi              NVARCHAR(200) NOT NULL,
-    KieuDeThi             NVARCHAR(30) NOT NULL CONSTRAINT DF_DeThiAI_KieuDeThi DEFAULT N'placement',
-    LanThu                INT NOT NULL CONSTRAINT DF_DeThiAI_LanThu DEFAULT (1),
-    TrinhDoMucTieu        NVARCHAR(20) NULL,
-    TongSoPhanDuKien      INT NULL,
-    TongSoBaiTapDuKien    INT NULL,
-    DuLieuTongQuanJson    NVARCHAR(MAX) NULL,
-    CauTraLoiTongJson     NVARCHAR(MAX) NULL,
-    KetQuaChamTongJson    NVARCHAR(MAX) NULL,
-    TongSoCau             INT NULL,
-    SoCauDung             INT NULL,
-    SoCauSai              INT NULL,
-    DiemSo                DECIMAL(5,2) NULL,
-    ThoiGianBatDau        DATETIME2(0) NULL,
-    ThoiGianHoanThanh     DATETIME2(0) NULL,
-    ThoiGianLamPhut       INT NULL,
-    TrangThaiDeThi        NVARCHAR(20) NOT NULL CONSTRAINT DF_DeThiAI_TrangThai DEFAULT N'draft',
-    NhanXetAI             NVARCHAR(MAX) NULL,
-    NhanDinhTrinhDoAI     NVARCHAR(20) NULL,
-    NgayTao               DATETIME2(0) NOT NULL CONSTRAINT DF_DeThiAI_NgayTao DEFAULT SYSDATETIME(),
-    NgayCapNhat           DATETIME2(0) NOT NULL CONSTRAINT DF_DeThiAI_NgayCapNhat DEFAULT SYSDATETIME(),
+    DeThiAIId        INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DeThiAI PRIMARY KEY,
+    NguoiDungId      INT NOT NULL,
+    TenDeThi         NVARCHAR(200) NOT NULL,
+    KieuDeThi        NVARCHAR(30) NOT NULL CONSTRAINT DF_DeThiAI_KieuDeThi DEFAULT N'placement',
+    TongSoPhan       INT NOT NULL CONSTRAINT DF_DeThiAI_TongSoPhan DEFAULT (0),
+    TongSoBaiTap     INT NOT NULL CONSTRAINT DF_DeThiAI_TongSoBaiTap DEFAULT (0),
+    NoiDungJson      NVARCHAR(MAX) NOT NULL,
+    ThoiGianLamDe    INT NOT NULL CONSTRAINT DF_DeThiAI_ThoiGianLamDe DEFAULT (0),
+    TrangThaiDeThi   NVARCHAR(20) NOT NULL CONSTRAINT DF_DeThiAI_TrangThai DEFAULT N'draft',
+    NgayTao          DATETIME2(0) NOT NULL CONSTRAINT DF_DeThiAI_NgayTao DEFAULT SYSDATETIME(),
 
     CONSTRAINT FK_DeThiAI_NguoiDung FOREIGN KEY (NguoiDungId) REFERENCES dbo.NguoiDung(NguoiDungId) ON DELETE CASCADE,
     CONSTRAINT CK_DeThiAI_KieuDeThi CHECK (KieuDeThi IN (N'placement', N'followup', N'practice')),
-    CONSTRAINT CK_DeThiAI_TrangThai CHECK (TrangThaiDeThi IN (N'draft', N'partial', N'completed', N'archived')),
-    CONSTRAINT CK_DeThiAI_DuLieuTongQuanJson CHECK (DuLieuTongQuanJson IS NULL OR ISJSON(DuLieuTongQuanJson) = 1),
-    CONSTRAINT CK_DeThiAI_CauTraLoiTongJson CHECK (CauTraLoiTongJson IS NULL OR ISJSON(CauTraLoiTongJson) = 1),
-    CONSTRAINT CK_DeThiAI_KetQuaChamTongJson CHECK (KetQuaChamTongJson IS NULL OR ISJSON(KetQuaChamTongJson) = 1),
-    CONSTRAINT CK_DeThiAI_TongSoPhanDuKien CHECK (TongSoPhanDuKien IS NULL OR TongSoPhanDuKien >= 0),
-    CONSTRAINT CK_DeThiAI_TongSoBaiTapDuKien CHECK (TongSoBaiTapDuKien IS NULL OR TongSoBaiTapDuKien >= 0),
-    CONSTRAINT CK_DeThiAI_NhanDinhTrinhDoAI CHECK (NhanDinhTrinhDoAI IS NULL OR NhanDinhTrinhDoAI IN (N'A1', N'A2', N'B1', N'B2', N'C1', N'C2')),
-    CONSTRAINT UQ_DeThiAI UNIQUE (NguoiDungId, KieuDeThi, LanThu)
+    CONSTRAINT CK_DeThiAI_TongSoPhan CHECK (TongSoPhan >= 0),
+    CONSTRAINT CK_DeThiAI_TongSoBaiTap CHECK (TongSoBaiTap >= 0),
+    CONSTRAINT CK_DeThiAI_ThoiGianLamDe CHECK (ThoiGianLamDe >= 0),
+    CONSTRAINT CK_DeThiAI_TrangThai CHECK (TrangThaiDeThi IN (N'draft', N'generated', N'archived')),
+    CONSTRAINT CK_DeThiAI_NoiDungJson CHECK (ISJSON(NoiDungJson) = 1)
 );
 GO
 
 CREATE INDEX IX_DeThiAI_NguoiDungId ON dbo.DeThiAI(NguoiDungId);
 CREATE INDEX IX_DeThiAI_KieuDeThi ON dbo.DeThiAI(KieuDeThi);
+CREATE INDEX IX_DeThiAI_TrangThaiDeThi ON dbo.DeThiAI(TrangThaiDeThi);
 CREATE INDEX IX_DeThiAI_NgayTao ON dbo.DeThiAI(NgayTao);
 GO
 
-CREATE TABLE dbo.PhanDeThiAI (
-    PhanDeThiAIId         INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_PhanDeThiAI PRIMARY KEY,
-    DeThiAIId             INT NOT NULL,
-    SoThuTuPhan           INT NOT NULL,
-    TenPhan               NVARCHAR(200) NOT NULL,
-    KienThucChinh         NVARCHAR(100) NULL,    -- ví dụ: listening, reading, writing, speaking, grammar...
-    MoTaPhan              NVARCHAR(500) NULL,
-    DuLieuPhanJson        NVARCHAR(MAX) NOT NULL, -- dữ liệu do AI tạo cho phần này
-    CauTraLoiPhanJson     NVARCHAR(MAX) NULL,     -- câu trả lời của người dùng ở phần này
-    KetQuaChamPhanJson    NVARCHAR(MAX) NULL,     -- kết quả chấm chi tiết cho phần này
-    TongSoCau             INT NULL,
-    SoCauDung             INT NULL,
-    SoCauSai              INT NULL,
-    DiemPhan              DECIMAL(5,2) NULL,
-    TrangThaiPhan         NVARCHAR(20) NOT NULL CONSTRAINT DF_PhanDeThiAI_TrangThai DEFAULT N'generated',
-    NhanXetAI             NVARCHAR(MAX) NULL,
-    NgayTao               DATETIME2(0) NOT NULL CONSTRAINT DF_PhanDeThiAI_NgayTao DEFAULT SYSDATETIME(),
-    NgayCapNhat           DATETIME2(0) NOT NULL CONSTRAINT DF_PhanDeThiAI_NgayCapNhat DEFAULT SYSDATETIME(),
+CREATE TABLE dbo.BaiLamDeThiAI (
+    BaiLamDeThiAIId    INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_BaiLamDeThiAI PRIMARY KEY,
+    DeThiAIId          INT NOT NULL,
+    NguoiDungId        INT NOT NULL,
+    LanThu             INT NOT NULL CONSTRAINT DF_BaiLamDeThiAI_LanThu DEFAULT (1),
+    CauTraLoiJson      NVARCHAR(MAX) NULL,
+    KetQuaChamJson     NVARCHAR(MAX) NULL,
+    DiemSo             DECIMAL(5,2) NULL,
+    TongSoCau          INT NULL,
+    SoCauDung          INT NULL,
+    SoCauSai           INT NULL,
+    TrinhDoNhanDinhAI  NVARCHAR(20) NULL,
+    ThoiGianLamPhut    INT NULL,
+    TrangThaiBaiLam    NVARCHAR(20) NOT NULL CONSTRAINT DF_BaiLamDeThiAI_TrangThai DEFAULT N'in_progress',
+    NhanXetAI          NVARCHAR(MAX) NULL,
+    NgayTao            DATETIME2(0) NOT NULL CONSTRAINT DF_BaiLamDeThiAI_NgayTao DEFAULT SYSDATETIME(),
 
-    CONSTRAINT FK_PhanDeThiAI_DeThiAI FOREIGN KEY (DeThiAIId) REFERENCES dbo.DeThiAI(DeThiAIId) ON DELETE CASCADE,
-    CONSTRAINT UQ_PhanDeThiAI UNIQUE (DeThiAIId, SoThuTuPhan),
-    CONSTRAINT CK_PhanDeThiAI_TrangThai CHECK (TrangThaiPhan IN (N'pending', N'generated', N'in_progress', N'submitted', N'graded', N'archived')),
-    CONSTRAINT CK_PhanDeThiAI_DuLieuPhanJson CHECK (ISJSON(DuLieuPhanJson) = 1),
-    CONSTRAINT CK_PhanDeThiAI_CauTraLoiPhanJson CHECK (CauTraLoiPhanJson IS NULL OR ISJSON(CauTraLoiPhanJson) = 1),
-    CONSTRAINT CK_PhanDeThiAI_KetQuaChamPhanJson CHECK (KetQuaChamPhanJson IS NULL OR ISJSON(KetQuaChamPhanJson) = 1),
-    CONSTRAINT CK_PhanDeThiAI_SoThuTuPhan CHECK (SoThuTuPhan > 0),
-    CONSTRAINT CK_PhanDeThiAI_TongSoCau CHECK (TongSoCau IS NULL OR TongSoCau >= 0),
-    CONSTRAINT CK_PhanDeThiAI_SoCauDung CHECK (SoCauDung IS NULL OR SoCauDung >= 0),
-    CONSTRAINT CK_PhanDeThiAI_SoCauSai CHECK (SoCauSai IS NULL OR SoCauSai >= 0)
+    CONSTRAINT FK_BaiLamDeThiAI_DeThiAI FOREIGN KEY (DeThiAIId) REFERENCES dbo.DeThiAI(DeThiAIId) ON DELETE CASCADE,
+    CONSTRAINT FK_BaiLamDeThiAI_NguoiDung FOREIGN KEY (NguoiDungId) REFERENCES dbo.NguoiDung(NguoiDungId) ON DELETE NO ACTION,
+    CONSTRAINT UQ_BaiLamDeThiAI UNIQUE (NguoiDungId, DeThiAIId, LanThu),
+    CONSTRAINT CK_BaiLamDeThiAI_TrangThai CHECK (TrangThaiBaiLam IN (N'in_progress', N'submitted', N'graded')),
+    CONSTRAINT CK_BaiLamDeThiAI_CauTraLoiJson CHECK (CauTraLoiJson IS NULL OR ISJSON(CauTraLoiJson) = 1),
+    CONSTRAINT CK_BaiLamDeThiAI_KetQuaChamJson CHECK (KetQuaChamJson IS NULL OR ISJSON(KetQuaChamJson) = 1)
 );
 GO
 
-CREATE INDEX IX_PhanDeThiAI_DeThiAIId ON dbo.PhanDeThiAI(DeThiAIId);
-CREATE INDEX IX_PhanDeThiAI_KienThucChinh ON dbo.PhanDeThiAI(KienThucChinh);
-GO
-
-CREATE TABLE dbo.BaiTapPhanDeThiAI (
-    BaiTapPhanDeThiAIId   INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_BaiTapPhanDeThiAI PRIMARY KEY,
-    PhanDeThiAIId         INT NOT NULL,
-    SoThuTuBaiTap         INT NOT NULL,
-    KieuBaiTap            NVARCHAR(50) NOT NULL,
-    NoiDungJson           NVARCHAR(MAX) NOT NULL,   -- nội dung câu hỏi/bài tập trong phần
-    DapAnJson             NVARCHAR(MAX) NULL,       -- đáp án đúng / key chấm
-    GiaiThichJson         NVARCHAR(MAX) NULL,       -- giải thích chi tiết nếu có
-    TrangThaiBaiTap       NVARCHAR(20) NOT NULL CONSTRAINT DF_BaiTapPhanDeThiAI_TrangThai DEFAULT N'generated',
-    NgayTao               DATETIME2(0) NOT NULL CONSTRAINT DF_BaiTapPhanDeThiAI_NgayTao DEFAULT SYSDATETIME(),
-    NgayCapNhat           DATETIME2(0) NOT NULL CONSTRAINT DF_BaiTapPhanDeThiAI_NgayCapNhat DEFAULT SYSDATETIME(),
-
-    CONSTRAINT FK_BaiTapPhanDeThiAI_PhanDeThiAI FOREIGN KEY (PhanDeThiAIId) REFERENCES dbo.PhanDeThiAI(PhanDeThiAIId) ON DELETE CASCADE,
-    CONSTRAINT UQ_BaiTapPhanDeThiAI UNIQUE (PhanDeThiAIId, SoThuTuBaiTap),
-    CONSTRAINT CK_BaiTapPhanDeThiAI_TrangThai CHECK (TrangThaiBaiTap IN (N'pending', N'generated', N'archived')),
-    CONSTRAINT CK_BaiTapPhanDeThiAI_NoiDungJson CHECK (ISJSON(NoiDungJson) = 1),
-    CONSTRAINT CK_BaiTapPhanDeThiAI_DapAnJson CHECK (DapAnJson IS NULL OR ISJSON(DapAnJson) = 1),
-    CONSTRAINT CK_BaiTapPhanDeThiAI_GiaiThichJson CHECK (GiaiThichJson IS NULL OR ISJSON(GiaiThichJson) = 1),
-    CONSTRAINT CK_BaiTapPhanDeThiAI_SoThuTuBaiTap CHECK (SoThuTuBaiTap > 0)
-);
-GO
-
-CREATE INDEX IX_BaiTapPhanDeThiAI_PhanDeThiAIId ON dbo.BaiTapPhanDeThiAI(PhanDeThiAIId);
-CREATE INDEX IX_BaiTapPhanDeThiAI_KieuBaiTap ON dbo.BaiTapPhanDeThiAI(KieuBaiTap);
+CREATE INDEX IX_BaiLamDeThiAI_DeThiAIId ON dbo.BaiLamDeThiAI(DeThiAIId);
+CREATE INDEX IX_BaiLamDeThiAI_NguoiDungId ON dbo.BaiLamDeThiAI(NguoiDungId);
+CREATE INDEX IX_BaiLamDeThiAI_TrangThaiBaiLam ON dbo.BaiLamDeThiAI(TrangThaiBaiLam);
+CREATE INDEX IX_BaiLamDeThiAI_NgayTao ON dbo.BaiLamDeThiAI(NgayTao);
 GO
 
 /* =========================================================
@@ -316,122 +271,10 @@ ON DELETE NO ACTION,
 );
 GO
 
-select * from dbo.BaiLamBaiTapAI
-
 CREATE INDEX IX_BaiLamBaiTapAI_NguoiDungId ON dbo.BaiLamBaiTapAI(NguoiDungId);
 CREATE INDEX IX_BaiLamBaiTapAI_BaiTapAIId ON dbo.BaiLamBaiTapAI(BaiTapAIId);
 CREATE INDEX IX_BaiLamBaiTapAI_DiemSo ON dbo.BaiLamBaiTapAI(DiemSo);
 CREATE INDEX IX_BaiLamBaiTapAI_NgayTao ON dbo.BaiLamBaiTapAI(NgayTao);
-GO
-
-CREATE TABLE dbo.ChiTietChamBaiBaiTapAI (
-    ChiTietChamBaiBaiTapAIId INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_ChiTietChamBaiBaiTapAI PRIMARY KEY,
-    BaiLamBaiTapAIId        INT NOT NULL,
-    SoThuTuCauHoi           INT NOT NULL,
-    KieuCauHoi              NVARCHAR(50) NULL,
-    CauTraLoiNguoiDung      NVARCHAR(MAX) NULL,
-    DapAnDung               NVARCHAR(MAX) NULL,
-    DungSai                 BIT NULL,
-    Diem                    DECIMAL(5,2) NULL,
-    GhiChuAI                NVARCHAR(MAX) NULL,
-    NgayTao                 DATETIME2(0) NOT NULL CONSTRAINT DF_ChiTietChamBaiBaiTapAI_NgayTao DEFAULT SYSDATETIME(),
-
-    CONSTRAINT FK_ChiTietChamBaiBaiTapAI_BaiLam FOREIGN KEY (BaiLamBaiTapAIId) REFERENCES dbo.BaiLamBaiTapAI(BaiLamBaiTapAIId) ON DELETE CASCADE,
-    CONSTRAINT UQ_ChiTietChamBaiBaiTapAI UNIQUE (BaiLamBaiTapAIId, SoThuTuCauHoi)
-);
-GO
-
-CREATE INDEX IX_ChiTietChamBaiBaiTapAI_BaiLamBaiTapAIId ON dbo.ChiTietChamBaiBaiTapAI(BaiLamBaiTapAIId);
-GO
-
-
-/* =========================================================
-    BÀI LÀM + CHẤM ĐIỂM CHO Bài làm đề thi
-   ========================================================= */
-
-IF OBJECT_ID(N'dbo.BaiLamDeThiAI', N'U') IS NULL
-BEGIN
-    CREATE TABLE dbo.BaiLamDeThiAI (
-        BaiLamDeThiAIId      INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_BaiLamDeThiAI PRIMARY KEY,
-        DeThiAIId            INT NOT NULL,
-        NguoiDungId          INT NOT NULL,
-        LanThu               INT NOT NULL CONSTRAINT DF_BaiLamDeThiAI_LanThu DEFAULT (1),
-
-        CauTraLoiTongJson    NVARCHAR(MAX) NULL,
-        KetQuaChamTongJson    NVARCHAR(MAX) NULL,
-
-        TongSoCau            INT NULL,
-        SoCauDung            INT NULL,
-        SoCauSai             INT NULL,
-        DiemSo               DECIMAL(5,2) NULL,
-
-        TrinhDoNhanDinhAI    NVARCHAR(20) NULL,
-
-        ThoiGianBatDau       DATETIME2(0) NULL,
-        ThoiGianHoanThanh    DATETIME2(0) NULL,
-        ThoiGianLamPhut      INT NULL,
-
-        TrangThaiBaiLam      NVARCHAR(20) NOT NULL CONSTRAINT DF_BaiLamDeThiAI_TrangThai DEFAULT N'in_progress',
-        NhanXetAI            NVARCHAR(MAX) NULL,
-        NgayTao              DATETIME2(0) NOT NULL CONSTRAINT DF_BaiLamDeThiAI_NgayTao DEFAULT SYSDATETIME(),
-
-        CONSTRAINT FK_BaiLamDeThiAI_DeThiAI 
-            FOREIGN KEY (DeThiAIId) 
-            REFERENCES dbo.DeThiAI(DeThiAIId) 
-            ON DELETE CASCADE,
-
-        CONSTRAINT FK_BaiLamDeThiAI_NguoiDung 
-            FOREIGN KEY (NguoiDungId) 
-            REFERENCES dbo.NguoiDung(NguoiDungId) 
-            ON DELETE NO ACTION,
-
-        CONSTRAINT UQ_BaiLamDeThiAI 
-            UNIQUE (NguoiDungId, DeThiAIId, LanThu),
-
-        CONSTRAINT CK_BaiLamDeThiAI_TrangThai 
-            CHECK (TrangThaiBaiLam IN (N'in_progress', N'submitted', N'graded')),
-
-        CONSTRAINT CK_BaiLamDeThiAI_CauTraLoiTongJson 
-            CHECK (CauTraLoiTongJson IS NULL OR ISJSON(CauTraLoiTongJson) = 1),
-
-        CONSTRAINT CK_BaiLamDeThiAI_KetQuaChamTongJson 
-            CHECK (KetQuaChamTongJson IS NULL OR ISJSON(KetQuaChamTongJson) = 1)
-    );
-END
-GO
-
-select * from BaiLamDeThiAI
-IF NOT EXISTS (
-    SELECT 1
-    FROM sys.indexes
-    WHERE name = N'IX_BaiLamDeThiAI_DeThiAIId'
-      AND object_id = OBJECT_ID(N'dbo.BaiLamDeThiAI')
-)
-BEGIN
-    CREATE INDEX IX_BaiLamDeThiAI_DeThiAIId ON dbo.BaiLamDeThiAI(DeThiAIId);
-END
-GO
-
-IF NOT EXISTS (
-    SELECT 1
-    FROM sys.indexes
-    WHERE name = N'IX_BaiLamDeThiAI_NguoiDungId'
-      AND object_id = OBJECT_ID(N'dbo.BaiLamDeThiAI')
-)
-BEGIN
-    CREATE INDEX IX_BaiLamDeThiAI_NguoiDungId ON dbo.BaiLamDeThiAI(NguoiDungId);
-END
-GO
-
-IF NOT EXISTS (
-    SELECT 1
-    FROM sys.indexes
-    WHERE name = N'IX_BaiLamDeThiAI_TrangThai'
-      AND object_id = OBJECT_ID(N'dbo.BaiLamDeThiAI')
-)
-BEGIN
-    CREATE INDEX IX_BaiLamDeThiAI_TrangThai ON dbo.BaiLamDeThiAI(TrangThaiBaiLam);
-END
 GO
 
 /* =========================================================
@@ -576,64 +419,39 @@ CREATE INDEX IX_ThanhToan_GoiDangKyId ON dbo.ThanhToan(GoiDangKyId);
 CREATE INDEX IX_ThanhToan_TrangThaiThanhToan ON dbo.ThanhToan(TrangThaiThanhToan);
 GO
 
-
 /* =========================================================
-   BẢNG XẾP HẠNG
+   11) TỪ VỰNG / TỪ ĐIỂN
    ========================================================= */
 
-IF OBJECT_ID(N'dbo.BangXepHang', N'U') IS NULL
-BEGIN
-    CREATE TABLE dbo.BangXepHang (
-        BangXepHangId     INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_BangXepHang PRIMARY KEY,
-        TenBangXepHang    NVARCHAR(200) NOT NULL,
-        KieuBangXepHang   NVARCHAR(20) NOT NULL,  -- daily, weekly, monthly, all_time, custom
-        NgayBatDau        DATE NULL,
-        NgayKetThuc       DATE NULL,
-        MoTa              NVARCHAR(500) NULL,
-        CongThucJson      NVARCHAR(MAX) NULL,     -- công thức tính điểm / quy tắc xếp hạng
-        TrangThai         NVARCHAR(20) NOT NULL CONSTRAINT DF_BangXepHang_TrangThai DEFAULT N'active',
-        NgayTao           DATETIME2(0) NOT NULL CONSTRAINT DF_BangXepHang_NgayTao DEFAULT SYSDATETIME(),
-        NgayCapNhat       DATETIME2(0) NOT NULL CONSTRAINT DF_BangXepHang_NgayCapNhat DEFAULT SYSDATETIME(),
+CREATE TABLE dbo.TuDienTuVung (
+    TuDienTuVungId   INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_TuDienTuVung PRIMARY KEY,
+    TuVung           NVARCHAR(100) NOT NULL,
+    Nghia            NVARCHAR(MAX) NOT NULL,
+    ViDu             NVARCHAR(MAX) NULL,
+    LoaiTu           NVARCHAR(50) NULL,
+    AudioUrl         NVARCHAR(255) NULL,
+    NgayTao          DATETIME2(0) NOT NULL CONSTRAINT DF_TuDienTuVung_NgayTao DEFAULT SYSDATETIME(),
 
-        CONSTRAINT CK_BangXepHang_KieuBangXepHang CHECK (KieuBangXepHang IN (N'daily', N'weekly', N'monthly', N'all_time', N'custom')),
-        CONSTRAINT CK_BangXepHang_TrangThai CHECK (TrangThai IN (N'active', N'inactive', N'archived')),
-        CONSTRAINT CK_BangXepHang_CongThucJson CHECK (CongThucJson IS NULL OR ISJSON(CongThucJson) = 1)
-    );
-END
+    CONSTRAINT UQ_TuDienTuVung_TuVung UNIQUE (TuVung)
+);
 GO
 
-IF OBJECT_ID(N'dbo.ChiTietBangXepHang', N'U') IS NULL
-BEGIN
-    CREATE TABLE dbo.ChiTietBangXepHang (
-        ChiTietBangXepHangId INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_ChiTietBangXepHang PRIMARY KEY,
-        BangXepHangId        INT NOT NULL,
-        NguoiDungId          INT NOT NULL,
-        HangXep              INT NULL,
-        DiemXepHang          DECIMAL(12,2) NOT NULL CONSTRAINT DF_ChiTietBangXepHang_DiemXepHang DEFAULT (0),
-        TongXP               INT NOT NULL CONSTRAINT DF_ChiTietBangXepHang_TongXP DEFAULT (0),
-        TongPhutHoc          INT NOT NULL CONSTRAINT DF_ChiTietBangXepHang_TongPhutHoc DEFAULT (0),
-        TongBaiHoanThanh     INT NOT NULL CONSTRAINT DF_ChiTietBangXepHang_TongBaiHoanThanh DEFAULT (0),
-        TongDeThiDaLam       INT NOT NULL CONSTRAINT DF_ChiTietBangXepHang_TongDeThiDaLam DEFAULT (0),
-        SoNgayDiemDanhLienTiep INT NOT NULL CONSTRAINT DF_ChiTietBangXepHang_SoNgayDiemDanhLienTiep DEFAULT (0),
-        CapDoHienTai         NVARCHAR(20) NULL,
-        ThongSoBoSungJson    NVARCHAR(MAX) NULL,
-        NgayCapNhat          DATETIME2(0) NOT NULL CONSTRAINT DF_ChiTietBangXepHang_NgayCapNhat DEFAULT SYSDATETIME(),
-
-        CONSTRAINT FK_ChiTietBangXepHang_BangXepHang FOREIGN KEY (BangXepHangId) REFERENCES dbo.BangXepHang(BangXepHangId) ON DELETE CASCADE,
-        CONSTRAINT FK_ChiTietBangXepHang_NguoiDung FOREIGN KEY (NguoiDungId) REFERENCES dbo.NguoiDung(NguoiDungId) ON DELETE CASCADE,
-        CONSTRAINT UQ_ChiTietBangXepHang UNIQUE (BangXepHangId, NguoiDungId),
-        CONSTRAINT CK_ChiTietBangXepHang_HangXep CHECK (HangXep IS NULL OR HangXep >= 1),
-        CONSTRAINT CK_ChiTietBangXepHang_DiemXepHang CHECK (DiemXepHang >= 0),
-        CONSTRAINT CK_ChiTietBangXepHang_ThongSoBoSungJson CHECK (ThongSoBoSungJson IS NULL OR ISJSON(ThongSoBoSungJson) = 1)
-    );
-END
+CREATE INDEX IX_TuDienTuVung_TuVung ON dbo.TuDienTuVung(TuVung);
 GO
 
-CREATE INDEX IX_BangXepHang_KieuBangXepHang ON dbo.BangXepHang(KieuBangXepHang);
-CREATE INDEX IX_BangXepHang_TrangThai ON dbo.BangXepHang(TrangThai);
-CREATE INDEX IX_BangXepHang_NgayBatDau_NgayKetThuc ON dbo.BangXepHang(NgayBatDau, NgayKetThuc);
+/* =========================================================
+   12) GỢI Ý DỮ LIỆU MẪU
+   ========================================================= */
 
-CREATE INDEX IX_ChiTietBangXepHang_BangXepHangId ON dbo.ChiTietBangXepHang(BangXepHangId);
-CREATE INDEX IX_ChiTietBangXepHang_NguoiDungId ON dbo.ChiTietBangXepHang(NguoiDungId);
-CREATE INDEX IX_ChiTietBangXepHang_DiemXepHang ON dbo.ChiTietBangXepHang(BangXepHangId, DiemXepHang DESC, TongXP DESC, TongPhutHoc DESC);
+/*
+-- Nếu muốn thêm bài tập mẫu:
+INSERT INTO dbo.BaiTapAI (NguoiDungId, KieuBaiTap, ChuDeBaiTap, TrinhDo, NoiDungJson)
+VALUES
+(1, N'listening', N'du lịch', N'A2', N'{"title":"Listening practice","questions":[{"id":1,"text":"..."}]}');
+
+-- Nếu muốn thêm đề thi mẫu:
+INSERT INTO dbo.DeThiAI (NguoiDungId, TenDeThi, KieuDeThi, LanThu, TrinhDoMucTieu, TongSoPhanDuKien, TongSoBaiTapDuKien, DuLieuTongQuanJson)
+VALUES
+(1, N'Đề đánh giá trình độ đầu vào', N'placement', 1, N'A2', 4, 20, N'{"timeLimit":45,"goal":"placement"}');
 GO
+*/
