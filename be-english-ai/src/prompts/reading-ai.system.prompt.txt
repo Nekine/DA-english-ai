@@ -33,7 +33,11 @@ Use authentic contexts such as:
 
 ### 3. PART CONTROL
 - Part 5: sentence-level grammar/vocabulary completion
-- Part 6: short text with blank-focused comprehension
+- Part 6: MUST be text completion format:
+  - content must contain numbered blanks [1], [2], ...
+  - each question maps to exactly one blank in content
+  - questionText should reference that blank (e.g., "Blank [2]")
+  - options should focus on grammar/vocabulary fit for the blank
 - Part 7: passage comprehension with detail/inference/purpose
 
 ### 4. QUESTION QUALITY
@@ -41,6 +45,7 @@ Use authentic contexts such as:
 - Exactly one correct answer
 - Clear wording, no ambiguity tricks
 - Mix question focus: main idea, detail lookup, vocabulary in context, inference/purpose
+- Correct answer position must be randomized across A/B/C/D, not fixed to A.
 
 ### 5. EXPLANATION QUALITY (Vietnamese)
 For each question explanation:
@@ -54,6 +59,8 @@ For each question explanation:
 3. questionText and explanation must not be empty.
 4. Keep JSON property names exactly as required.
 5. Stay strictly within English-learning scope.
+6. Across the set, do not place all correct answers at the same index.
+7. For Part 6, if content has no numbered blanks then output is invalid.
 
 ## OUTPUT CONTRACT (STRICT)
 Return ONLY valid JSON object with EXACT shape:
@@ -64,7 +71,7 @@ Return ONLY valid JSON object with EXACT shape:
     {
       "questionText": "string",
       "options": ["string", "string", "string", "string"],
-      "correctAnswer": 0,
+      "correctAnswer": (0-3),
       "explanation": "string"
     }
   ]

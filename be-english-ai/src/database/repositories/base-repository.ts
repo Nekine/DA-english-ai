@@ -4,7 +4,7 @@ import { getDbPool } from "../sqlserver/client";
 export abstract class BaseRepository {
   protected async createRequest(transaction?: sql.Transaction): Promise<sql.Request> {
     if (transaction) {
-      return new sql.Request(transaction);
+      return transaction.request();
     }
 
     const pool = await getDbPool();

@@ -1,5 +1,6 @@
 import { exerciseRepository } from "../database/repositories/exercise-repository";
 import { appConfig } from "../config";
+import { triggerLearningInsightsRefresh } from "./learning-insights-service";
 
 type CreatedExerciseKind = "grammar" | "writing";
 
@@ -534,7 +535,9 @@ export async function submitAiExerciseResult(input: {
     return { success: false, message: "User not found" };
   }
 
-  const exercise = await exerciseRepository.getExerciseById(input.exerciseId, nguoiDungId);
+  const exercise =
+    (await exerciseRepository.getExerciseById(input.exerciseId, nguoiDungId))
+    ?? (await exerciseRepository.getExerciseByIdAnyUser(input.exerciseId));
   if (!exercise || exercise.kieuBaiTap !== "grammar") {
     return { success: false, message: "Exercise not found" };
   }
@@ -580,7 +583,8 @@ export async function submitAiExerciseResult(input: {
   const correctCount = details.reduce((sum, detail) => sum + (detail.isCorrect ? 1 : 0), 0);
   const incorrectCount = Math.max(0, totalQuestions - correctCount);
   const score = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 10000) / 100 : 0;
-  const completedAt = input.completedAt ? new Date(input.completedAt) : new Date();
+  const completedAtRaw = input.completedAt ? new Date(input.completedAt) : new Date();
+  const completedAt = Number.isNaN(completedAtRaw.getTime()) ? new Date() : completedAtRaw;
 
   const resultJson = {
     totalQuestions,
@@ -590,7 +594,7 @@ export async function submitAiExerciseResult(input: {
     submittedAt: completedAt.toISOString(),
   };
 
-  await exerciseRepository.addCompletion({
+  const completion = await exerciseRepository.addCompletion({
     nguoiDungId,
     exerciseId: input.exerciseId,
     answersJson: { answers: input.answers },
@@ -600,6 +604,12 @@ export async function submitAiExerciseResult(input: {
     correctAnswers: correctCount,
     completedAt,
     details,
+  });
+
+  triggerLearningInsightsRefresh({
+    nguoiDungId,
+    attemptNumber: completion.attemptNumber,
+    source: "grammar_submit",
   });
 
   return {
@@ -643,7 +653,9 @@ export async function submitSentenceWritingResult(input: {
     return { success: false, message: "User not found" };
   }
 
-  const exercise = await exerciseRepository.getExerciseById(input.exerciseId, nguoiDungId);
+  const exercise =
+    (await exerciseRepository.getExerciseById(input.exerciseId, nguoiDungId))
+    ?? (await exerciseRepository.getExerciseByIdAnyUser(input.exerciseId));
   if (!exercise || exercise.kieuBaiTap !== "writing") {
     return { success: false, message: "Exercise not found" };
   }
@@ -693,7 +705,8 @@ export async function submitSentenceWritingResult(input: {
   const correctCount = details.reduce((sum, detail) => sum + (detail.isCorrect ? 1 : 0), 0);
   const incorrectCount = Math.max(0, totalQuestions - correctCount);
   const score = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 10000) / 100 : 0;
-  const completedAt = input.completedAt ? new Date(input.completedAt) : new Date();
+  const completedAtRaw = input.completedAt ? new Date(input.completedAt) : new Date();
+  const completedAt = Number.isNaN(completedAtRaw.getTime()) ? new Date() : completedAtRaw;
 
   const resultJson = {
     totalQuestions,
@@ -703,7 +716,7 @@ export async function submitSentenceWritingResult(input: {
     submittedAt: completedAt.toISOString(),
   };
 
-  await exerciseRepository.addCompletion({
+  const completion = await exerciseRepository.addCompletion({
     nguoiDungId,
     exerciseId: input.exerciseId,
     answersJson: {
@@ -715,6 +728,12 @@ export async function submitSentenceWritingResult(input: {
     correctAnswers: correctCount,
     completedAt,
     details,
+  });
+
+  triggerLearningInsightsRefresh({
+    nguoiDungId,
+    attemptNumber: completion.attemptNumber,
+    source: "sentence_writing_submit",
   });
 
   return {

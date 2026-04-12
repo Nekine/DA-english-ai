@@ -15,6 +15,8 @@ type SearchHistoryItem = {
 const MAX_KEYWORD_WORDS = 5;
 const MAX_CONTEXT_WORDS = 50;
 const MAX_HISTORY_ITEMS = 50;
+const MAX_GENERATION_ATTEMPTS = 3;
+const VIETNAMESE_DIACRITIC_REGEX = /[àáảãạăằắẳẵặâầấẩẫậđèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵ]/i;
 
 const searchHistory: SearchHistoryItem[] = [];
 const favoriteWords = new Set<string>();
@@ -35,6 +37,103 @@ function normalizeProvider(provider: string | undefined): AiProvider | null {
   }
 
   return null;
+}
+
+function normalizeForValidation(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function sanitizeDictionaryMarkdown(value: string): string {
+  let cleaned = value.trim();
+  const fencedMatch = cleaned.match(/^```[a-zA-Z]*\s*([\s\S]*?)\s*```$/);
+  if (fencedMatch?.[1]) {
+    cleaned = fencedMatch[1].trim();
+  }
+
+  return cleaned.replace(/\r\n/g, "\n").trim();
+}
+
+function hasExpectedDictionaryStructure(value: string): boolean {
+  const normalized = normalizeForValidation(value);
+  return ["## 1.", "## 2.", "## 3.", "## 4.", "## 5.", "## 6.", "## 7."].every((section) =>
+    normalized.includes(section),
+  );
+}
+
+function stripAllowedEnglishLines(value: string): string {
+  const lines = value.split("\n");
+  const kept = lines.filter((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return false;
+    }
+
+    if (/^-\s*EN\s*:/i.test(trimmed)) {
+      return false;
+    }
+
+    if (/^-\s*IPA\s*\(/i.test(trimmed)) {
+      return false;
+    }
+
+    return true;
+  });
+
+  return kept.join("\n");
+}
+
+function hasVietnameseWithDiacritics(value: string): boolean {
+  return VIETNAMESE_DIACRITIC_REGEX.test(value);
+}
+
+function hasTooMuchEnglishOutsideExamples(value: string): boolean {
+  const body = stripAllowedEnglishLines(value).toLowerCase();
+  if (!body) {
+    return false;
+  }
+
+  const englishStopwords = body.match(/\b(the|and|or|to|of|in|for|with|is|are|was|were|this|that|from|by|on|as|at|an|a|it|be)\b/g) ?? [];
+  return englishStopwords.length >= 6;
+}
+
+function getDictionaryOutputIssue(value: string): string | null {
+  if (!hasExpectedDictionaryStructure(value)) {
+    return "Thiếu cấu trúc bắt buộc ## 1..## 7.";
+  }
+
+  const body = stripAllowedEnglishLines(value);
+  if (!hasVietnameseWithDiacritics(body)) {
+    return "Nội dung giải thích chưa phải tiếng Việt có dấu.";
+  }
+
+  if (hasTooMuchEnglishOutsideExamples(value)) {
+    return "Giải thích còn quá nhiều tiếng Anh ngoài phần ví dụ EN/VI.";
+  }
+
+  return null;
+}
+
+function buildDictionaryUserPrompt(input: {
+  keyword: string;
+  context: string;
+  previousIssue?: string;
+}): string {
+  const parts = [
+    `Keyword: ${input.keyword}`,
+    `Context: ${input.context || "(none)"}`,
+    "Trả về markdown đúng 7 mục theo prompt hệ thống.",
+    "Giải thích bắt buộc bằng tiếng Việt có dấu.",
+    "Không dùng JSON, không dùng code fence, không chèn link.",
+  ];
+
+  if (input.previousIssue && input.previousIssue.trim().length > 0) {
+    parts.push(`Previous output issue: ${input.previousIssue}`);
+  }
+
+  return parts.join("\n");
 }
 
 function pushHistory(word: string): void {
@@ -91,24 +190,39 @@ export async function searchDictionary(input: SearchInput): Promise<{ status: nu
   }
 
   const systemPrompt = loadPromptTemplate("dictionary.system.prompt.txt");
-  const userPrompt = [
-    `Keyword: ${keyword}`,
-    `Context: ${context || "(none)"}`,
-    `Provider selected by user: ${provider}`,
-    "Return markdown with exact required structure.",
-  ].join("\n");
 
   try {
-    const result = await generateTextFromProvider({
-      provider,
-      systemPrompt,
-      userPrompt,
-      temperature: 0.2,
-    });
+    let previousIssue = "";
+    let finalResult = "";
 
-    searchCache.set(cacheKey, result);
+    for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt += 1) {
+      const userPrompt = buildDictionaryUserPrompt({
+        keyword,
+        context,
+        ...(previousIssue ? { previousIssue } : {}),
+      });
+
+      const raw = await generateTextFromProvider({
+        provider,
+        systemPrompt,
+        userPrompt,
+        temperature: 0.1,
+      });
+
+      const cleaned = sanitizeDictionaryMarkdown(raw);
+      finalResult = cleaned;
+
+      const outputIssue = getDictionaryOutputIssue(cleaned);
+      if (!outputIssue) {
+        break;
+      }
+
+      previousIssue = outputIssue;
+    }
+
+    searchCache.set(cacheKey, finalResult);
     pushHistory(keyword);
-    return { status: 200, data: result };
+    return { status: 200, data: finalResult };
   } catch (error) {
     return {
       status: getHttpStatusFromError(error, 502),

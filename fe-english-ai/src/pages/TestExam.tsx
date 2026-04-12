@@ -19,6 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { testExamService, type SubmitTestExamResponse } from "@/services/testExamService";
 
 const TestExam = () => {
   const { testId } = useParams();
@@ -31,6 +32,8 @@ const TestExam = () => {
   const [userAnswers, setUserAnswers] = useState<Record<string, string>>({});
   const [submittedParts, setSubmittedParts] = useState<Record<number, boolean>>({});
   const [isExamSubmitted, setIsExamSubmitted] = useState(false);
+  const [isSubmittingExam, setIsSubmittingExam] = useState(false);
+  const [examSubmissionResult, setExamSubmissionResult] = useState<SubmitTestExamResponse | null>(null);
   const [audioErrors, setAudioErrors] = useState<Record<string, boolean>>({});
   const [timeLeft, setTimeLeft] = useState(7200); // 120 phút = 7200 giây
   const [showInstructions, setShowInstructions] = useState(true);
@@ -81,12 +84,15 @@ const TestExam = () => {
   const isSinglePartExam = totalSelectedParts <= 1;
   const isCurrentPartLast = Boolean(selectedPart && lastPartNumber && selectedPart.partNumber === lastPartNumber);
   const shouldShowExamScore = testDetail?.isRealExamMode
-    ? isExamCompleted && isExamSubmitted
+    ? isExamSubmitted
     : isExamCompleted;
   const shouldRevealExamResults = !testDetail?.isRealExamMode || shouldShowExamScore;
   const shouldStopCountdown = Boolean(testDetail?.isRealExamMode && shouldShowExamScore);
   const scorePercent =
     allReadyQuestions.length > 0 ? Math.round((correctAnswerCount / allReadyQuestions.length) * 100) : 0;
+  const displayedCorrectAnswers = examSubmissionResult?.correctAnswers ?? correctAnswerCount;
+  const displayedTotalQuestions = examSubmissionResult?.totalQuestions ?? allReadyQuestions.length;
+  const displayedScorePercent = examSubmissionResult?.score ?? scorePercent;
 
   const stopActiveAudio = useCallback(() => {
     if (audioElementRef.current) {
@@ -105,6 +111,8 @@ const TestExam = () => {
     }
 
     setTimeLeft(Math.max(1, testDetail.estimatedMinutes) * 60);
+    setIsExamSubmitted(false);
+    setExamSubmissionResult(null);
   }, [testDetail?.testId]);
 
   useEffect(() => {
@@ -255,14 +263,31 @@ const TestExam = () => {
     }
   };
 
-  const submitExam = () => {
+  const submitExam = async () => {
     if (!selectedPart || !canSubmitCurrentPart) {
       return;
     }
 
-    const incompletePartNumbers = getIncompletePartNumbers().filter(
-      (partNumber) => partNumber !== selectedPart.partNumber,
-    );
+    if (!allSelectedPartsReady) {
+      const pendingParts = sortedParts
+        .filter((part) => part.status !== "ready" || part.questions.length === 0)
+        .map((part) => `Part ${part.partNumber}`)
+        .join(", ");
+
+      toast({
+        title: "Đề chưa sẵn sàng để nộp",
+        description: pendingParts
+          ? `${pendingParts} vẫn đang tạo. Vui lòng đợi hoàn tất rồi nộp đề.`
+          : "Đề vẫn đang được tạo. Vui lòng thử lại sau ít phút.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const incompletePartNumbers = readyParts
+      .filter((part) => part.questions.some((question) => !userAnswers[question.questionId]))
+      .map((part) => part.partNumber)
+      .filter((partNumber) => partNumber !== selectedPart.partNumber);
 
     if (incompletePartNumbers.length > 0) {
       const partLabel = incompletePartNumbers.map((partNumber) => `Part ${partNumber}`).join(", ");
@@ -274,8 +299,69 @@ const TestExam = () => {
       return;
     }
 
-    setSubmittedParts((prev) => ({ ...prev, [selectedPart.partNumber]: true }));
-    setIsExamSubmitted(true);
+    if (!testId) {
+      toast({
+        title: "Lỗi nộp đề",
+        description: "Không xác định được mã đề thi.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const answersPayload = allReadyQuestions
+      .map((question) => {
+        const selectedAnswer = userAnswers[question.questionId];
+        if (!selectedAnswer) {
+          return null;
+        }
+
+        const ownerPart = readyParts.find((part) =>
+          part.questions.some((item) => item.questionId === question.questionId),
+        );
+
+        if (!ownerPart) {
+          return null;
+        }
+
+        return {
+          questionId: question.questionId,
+          partNumber: ownerPart.partNumber,
+          questionNumber: question.questionNumber,
+          selectedAnswer,
+        };
+      })
+      .filter((item): item is { questionId: string; partNumber: number; questionNumber: number; selectedAnswer: string } => item !== null);
+
+    const estimatedSeconds = Math.max(0, testDetail.estimatedMinutes * 60);
+    const elapsedSeconds = Math.max(0, estimatedSeconds - timeLeft);
+    const durationMinutes = Math.max(1, Math.round(elapsedSeconds / 60));
+
+    try {
+      setIsSubmittingExam(true);
+
+      const response = await testExamService.submit(testId, {
+        Answers: answersPayload,
+        CompletedAt: new Date().toISOString(),
+        DurationMinutes: durationMinutes,
+      });
+
+      if (!response.success) {
+        throw new Error(response.message || "Nộp đề thất bại");
+      }
+
+      setSubmittedParts((prev) => ({ ...prev, [selectedPart.partNumber]: true }));
+      setIsExamSubmitted(true);
+      setExamSubmissionResult(response);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không thể nộp đề lúc này.";
+      toast({
+        title: "Nộp đề thất bại",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmittingExam(false);
+    }
   };
 
   if (isLoading || !testDetail) {
@@ -548,9 +634,13 @@ const TestExam = () => {
 
               {selectedPart && selectedPart.status === "ready" && testDetail.isRealExamMode && (
                 isCurrentPartLast || isSinglePartExam ? (
-                  <Button onClick={submitExam} disabled={!canSubmitCurrentPart} className="flex-shrink-0">
-                    <CheckCircle2 className="w-4 h-4 mr-2" />
-                    Nộp đề
+                  <Button onClick={submitExam} disabled={!canSubmitCurrentPart || isSubmittingExam || !allSelectedPartsReady} className="flex-shrink-0">
+                    {isSubmittingExam ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="w-4 h-4 mr-2" />
+                    )}
+                    {isSubmittingExam ? "Đang nộp đề..." : "Nộp đề"}
                   </Button>
                 ) : (
                   <Button onClick={submitCurrentPart} disabled={!canSubmitCurrentPart} className="flex-shrink-0">
@@ -571,9 +661,9 @@ const TestExam = () => {
                 <div className="mb-6 p-4 rounded-lg border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 dark:border-emerald-800">
                   <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">Bạn đã hoàn thành toàn bộ đề.</p>
                   <p className="text-2xl font-bold mt-1 text-emerald-900 dark:text-emerald-200">
-                    Điểm: {correctAnswerCount}/{allReadyQuestions.length}
+                    Điểm: {displayedCorrectAnswers}/{displayedTotalQuestions}
                   </p>
-                  <p className="text-sm text-emerald-800/90 dark:text-emerald-300/90">Tỷ lệ đúng: {scorePercent}%</p>
+                  <p className="text-sm text-emerald-800/90 dark:text-emerald-300/90">Tỷ lệ đúng: {displayedScorePercent}%</p>
                 </div>
               )}
 

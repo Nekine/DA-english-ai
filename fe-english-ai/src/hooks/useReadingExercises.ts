@@ -67,11 +67,7 @@ export const useReadingExercises = () => {
   const submitMutation = useMutation({
     mutationFn: ({ exerciseId, answers }: { exerciseId: number; answers: number[] }) =>
       databaseStatsService.submitReadingResult(1, exerciseId, answers), // userId=1 tạm
-    onSuccess: (result: UserResult) => {
-      toast({
-        title: 'Results Saved',
-        description: `Score: ${result.score}/${result.totalQuestions} - Great job!`,
-      });
+    onSuccess: (_result: UserResult) => {
     },
     onError: (error) => {
       toast({

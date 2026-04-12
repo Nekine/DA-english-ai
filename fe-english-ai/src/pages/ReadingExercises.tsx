@@ -43,7 +43,7 @@ const ReadingExercises = () => {
   const [level, setLevel] = useState<Level>("Intermediate");
   const [type, setType] = useState<Type>("Part 7");
   const [provider, setProvider] = useState<"gemini" | "openai" | "xai">("openai");
-  const [showCreatedExercises, setShowCreatedExercises] = useState(false);
+  const [showCreatedExercises, setShowCreatedExercises] = useState(true);
   const [createdPage, setCreatedPage] = useState(1);
 
   // Scroll to top on mount
@@ -93,22 +93,11 @@ const ReadingExercises = () => {
   };
 
   if (selectedExercise) {
-    // DEBUG: Log all exercises to see their IDs
-    console.log('🎯 All exercises:', exercises.map(ex => ({ 
-      name: ex.name, 
-      id: ex.id, 
-      exerciseId: ex.exerciseId 
-    })));
-    console.log('🎯 Looking for selectedExercise:', selectedExercise);
-    
+  
     // Find exercise by exerciseId (primary key) instead of id
     const exercise = exercises.find((ex) => String(ex.exerciseId) === selectedExercise);
     
-    console.log('🎯 Found exercise:', exercise ? { 
-      name: exercise.name, 
-      id: exercise.id, 
-      exerciseId: exercise.exerciseId 
-    } : 'NOT FOUND');
+    
     
     if (!exercise) return null;
 

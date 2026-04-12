@@ -64,6 +64,16 @@ class ApiService {
     }
   }
 
+  private clearAuthStorage(): void {
+    try {
+      localStorage.removeItem('engace_token');
+      localStorage.removeItem('engace_user');
+      localStorage.removeItem('user');
+    } catch {
+      // no-op
+    }
+  }
+
   // Get headers
   getHeaders(): HeadersInit {
     const token = this.getAuthToken();
@@ -100,6 +110,14 @@ class ApiService {
           errorMessage = errorData?.message || errorData || errorMessage;
         } catch {
           // If not JSON, use the text as is
+        }
+
+        if (response.status === 401) {
+          this.clearAuthStorage();
+          if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+            window.location.href = '/login';
+          }
+          errorMessage = 'Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại.';
         }
         
         const error: any = new Error(errorMessage);

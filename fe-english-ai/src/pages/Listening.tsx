@@ -319,10 +319,6 @@ const Listening = () => {
       setIsLoading(true);
       const result = await listeningService.gradeExercise(exercise.ExerciseId, payload);
       setGradeResult(result);
-      toast({
-        title: 'Đã chấm điểm',
-        description: `Bạn trả lời đúng ${result.CorrectAnswers}/${result.TotalQuestions} câu.`
-      });
     } catch (error) {
       console.error('Failed to grade listening answers', error);
       toast({

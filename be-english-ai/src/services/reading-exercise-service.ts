@@ -1,6 +1,7 @@
 import { ReadingExerciseRepository, type ReadingQuestionInput } from "../database/repositories/reading-exercise-repository";
 import { appConfig } from "../config";
 import { generateJsonFromProvider, type AiProvider } from "./ai/ai-client";
+import { triggerLearningInsightsRefresh } from "./learning-insights-service";
 import { loadPromptTemplate } from "./ai/prompt-loader";
 
 const readingRepository = new ReadingExerciseRepository();
@@ -37,6 +38,420 @@ type InMemoryReadingExercise = {
 };
 
 const inMemoryReadingExercises = new Map<number, InMemoryReadingExercise>();
+
+type ReadingPartType = "Part 5" | "Part 6" | "Part 7";
+
+function randomOptionIndex(maxInclusive: number): number {
+  const safeMax = Math.max(0, Math.trunc(maxInclusive));
+  return Math.floor(Math.random() * (safeMax + 1));
+}
+
+function normalizePartType(rawType: string | undefined): ReadingPartType {
+  const value = String(rawType ?? "").trim().toLowerCase().replace(/\s+/g, "");
+
+  if (value === "part5" || value === "5") {
+    return "Part 5";
+  }
+
+  if (value === "part6" || value === "6") {
+    return "Part 6";
+  }
+
+  if (value === "part7" || value === "7") {
+    return "Part 7";
+  }
+
+  return "Part 7";
+}
+
+function getExpectedQuestionCount(partType: ReadingPartType): number {
+  if (partType === "Part 5") {
+    return 5;
+  }
+
+  if (partType === "Part 6") {
+    return 6;
+  }
+
+  return 8;
+}
+
+function extractBlankNumbers(content: string): number[] {
+  const matches = [...content.matchAll(/\[(\d+)\]/g)];
+  const numbers = new Set<number>();
+
+  for (const match of matches) {
+    const value = Number(match[1]);
+    if (Number.isInteger(value) && value > 0) {
+      numbers.add(value);
+    }
+  }
+
+  return [...numbers].sort((a, b) => a - b);
+}
+
+function extractBlankNumberFromQuestion(questionText: string): number | null {
+  const byBracket = questionText.match(/\[(\d+)\]/);
+  if (byBracket?.[1]) {
+    const value = Number(byBracket[1]);
+    if (Number.isInteger(value) && value > 0) {
+      return value;
+    }
+  }
+
+  const byToken = questionText.match(/(?:blank|ch[oỗ]\s*tr[oố]ng)\s*(\d+)/i);
+  if (byToken?.[1]) {
+    const value = Number(byToken[1]);
+    if (Number.isInteger(value) && value > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function hasVietnameseDiacritics(text: string): boolean {
+  return /[ăâđêôơưáàảãạắằẳẵặấầẩẫậéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/i.test(text);
+}
+
+function isLikelyEnglishPassage(text: string): boolean {
+  const value = text.trim();
+  if (!value) {
+    return false;
+  }
+
+  if (hasVietnameseDiacritics(value)) {
+    return false;
+  }
+
+  const wordMatches = value.match(/[A-Za-z][A-Za-z'-]*/g) ?? [];
+  return wordMatches.length >= 20;
+}
+
+async function translatePassageToEnglish(input: {
+  provider: AiProvider;
+  partType: ReadingPartType;
+  content: string;
+}): Promise<string | null> {
+  try {
+    const translated = await generateJsonFromProvider<{ content?: string }>({
+      provider: input.provider,
+      systemPrompt:
+        "You are an expert translator for TOEIC materials. Translate to natural English only.",
+      userPrompt: [
+        `Part type: ${input.partType}`,
+        "Translate the passage to English.",
+        "Keep numbered blanks like [1], [2], ... unchanged.",
+        "Return ONLY JSON object: {\"content\": \"...\"}",
+        `Passage: ${input.content}`,
+      ].join("\n"),
+      temperature: 0,
+    });
+
+    const content = String(translated?.content ?? "").trim();
+    if (!content) {
+      return null;
+    }
+
+    return content;
+  } catch {
+    return null;
+  }
+}
+
+function isPart6ShapeValid(content: string, questions: ReadingQuestionInput[], expectedCount: number): boolean {
+  if (!isLikelyEnglishPassage(content)) {
+    return false;
+  }
+
+  if (questions.length !== expectedCount) {
+    return false;
+  }
+
+  const blankNumbers = extractBlankNumbers(content);
+  if (blankNumbers.length < expectedCount) {
+    return false;
+  }
+
+  const blankSet = new Set<number>(blankNumbers);
+  return questions.every((question) => {
+    const blankNo = extractBlankNumberFromQuestion(question.questionText);
+    return blankNo !== null && blankSet.has(blankNo);
+  });
+}
+
+function isPart7ShapeValid(content: string, questions: ReadingQuestionInput[], expectedCount: number): boolean {
+  if (!isLikelyEnglishPassage(content)) {
+    return false;
+  }
+
+  if (questions.length !== expectedCount) {
+    return false;
+  }
+
+  if (extractBlankNumbers(content).length > 0) {
+    return false;
+  }
+
+  if (countWords(content) < 60) {
+    return false;
+  }
+
+  return questions.every((question) => extractBlankNumberFromQuestion(question.questionText) === null);
+}
+
+function buildPart6FallbackExercise(input: {
+  topic: string;
+  level: "Beginner" | "Intermediate" | "Advanced";
+  questionCount: number;
+}): { title: string; content: string; questions: ReadingQuestionInput[] } {
+  const topic = input.topic.trim() || "Business Update";
+  const title = `Part 6 - ${topic}`;
+
+  const content = [
+    `Dear Team,`,
+    "",
+    `Thank you for your efforts on the ${topic} project. We are [1] to share the latest update with everyone.`,
+    "Please [2] the attached schedule before Friday and confirm your assigned tasks.",
+    "The client meeting is [3] Monday morning, so all materials must be finalized this week.",
+    "If you have any questions, [4] your team leader as soon as possible.",
+    "Your feedback is [5] to improve the final presentation.",
+    "We appreciate your support and look [6] to a successful launch.",
+    "",
+    "Best regards,",
+    "Project Coordinator",
+  ].join("\n");
+
+  const baseQuestions: ReadingQuestionInput[] = [
+    {
+      questionText: "Blank [1]",
+      optionA: "pleased",
+      optionB: "please",
+      optionC: "pleasing",
+      optionD: "pleasant",
+      correctAnswer: 0,
+      explanation: "Đáp án đúng là A vì sau 'are' cần tính từ để mô tả trạng thái của người viết.",
+    },
+    {
+      questionText: "Blank [2]",
+      optionA: "submitting",
+      optionB: "submit",
+      optionC: "submitted",
+      optionD: "submission",
+      correctAnswer: 1,
+      explanation: "Đáp án đúng là B vì sau 'Please' dùng động từ nguyên mẫu không 'to'.",
+    },
+    {
+      questionText: "Blank [3]",
+      optionA: "at",
+      optionB: "on",
+      optionC: "in",
+      optionD: "for",
+      correctAnswer: 1,
+      explanation: "Đáp án đúng là B vì dùng 'on' với thứ trong tuần (on Monday).",
+    },
+    {
+      questionText: "Blank [4]",
+      optionA: "contact",
+      optionB: "contacts",
+      optionC: "contacting",
+      optionD: "contacted",
+      correctAnswer: 0,
+      explanation: "Đáp án đúng là A vì đây là mệnh lệnh, dùng động từ nguyên mẫu.",
+    },
+    {
+      questionText: "Blank [5]",
+      optionA: "valuable",
+      optionB: "value",
+      optionC: "valuate",
+      optionD: "valuably",
+      correctAnswer: 0,
+      explanation: "Đáp án đúng là A vì sau động từ 'is' cần tính từ mô tả danh từ feedback.",
+    },
+    {
+      questionText: "Blank [6]",
+      optionA: "forward",
+      optionB: "forwards",
+      optionC: "forwarded",
+      optionD: "forwarding",
+      correctAnswer: 0,
+      explanation: "Đáp án đúng là A trong cụm cố định 'look forward to'.",
+    },
+  ];
+
+  return {
+    title,
+    content,
+    questions: baseQuestions.slice(0, Math.max(1, input.questionCount)),
+  };
+}
+
+function buildPart7FallbackExercise(input: {
+  topic: string;
+  level: "Beginner" | "Intermediate" | "Advanced";
+  questionCount: number;
+}): { title: string; content: string; questions: ReadingQuestionInput[] } {
+  const topic = input.topic.trim() || "Business Communication";
+  const title = `Part 7 - ${topic}`;
+
+  const content = [
+    `Subject: Weekly Update on ${topic}`,
+    "",
+    "Dear Team,",
+    "",
+    "Thank you for your continuous support this month. Our department has completed the first phase of the project and prepared a revised timeline for the next tasks.",
+    "The final draft of the report must be submitted by Thursday afternoon. On Friday morning, we will hold a short meeting to review key results and assign responsibilities for next week.",
+    "If you need additional data, please contact Ms. Lan before Wednesday so she can prepare the materials in time. We also remind everyone to check email updates regularly because the client may request quick changes.",
+    "",
+    "Best regards,",
+    "Project Management Office",
+  ].join("\n");
+
+  const baseQuestions: ReadingQuestionInput[] = [
+    {
+      questionText: "What is the main purpose of this message?",
+      optionA: "To announce a holiday schedule",
+      optionB: "To provide a weekly project update",
+      optionC: "To cancel a client contract",
+      optionD: "To introduce a new employee",
+      correctAnswer: 1,
+      explanation: "Đáp án đúng là B vì toàn bộ email tập trung cập nhật tiến độ và kế hoạch tuần.",
+    },
+    {
+      questionText: "When is the final draft due?",
+      optionA: "Wednesday morning",
+      optionB: "Thursday afternoon",
+      optionC: "Friday afternoon",
+      optionD: "Next Monday",
+      correctAnswer: 1,
+      explanation: "Đáp án đúng là B vì email nêu rõ hạn nộp là Thursday afternoon.",
+    },
+    {
+      questionText: "What will happen on Friday morning?",
+      optionA: "A training session",
+      optionB: "A client visit",
+      optionC: "A short review meeting",
+      optionD: "A recruitment interview",
+      correctAnswer: 2,
+      explanation: "Đáp án đúng là C vì đoạn văn ghi rõ sẽ có cuộc họp ngắn vào Friday morning.",
+    },
+    {
+      questionText: "Who should staff contact for additional data?",
+      optionA: "The client",
+      optionB: "Ms. Lan",
+      optionC: "The HR manager",
+      optionD: "The sales team",
+      correctAnswer: 1,
+      explanation: "Đáp án đúng là B vì email yêu cầu liên hệ Ms. Lan để lấy dữ liệu bổ sung.",
+    },
+    {
+      questionText: "Why are team members asked to check email regularly?",
+      optionA: "To receive salary updates",
+      optionB: "To download software",
+      optionC: "Because client requests may change quickly",
+      optionD: "Because meetings are canceled",
+      correctAnswer: 2,
+      explanation: "Đáp án đúng là C vì đoạn cuối nêu khách hàng có thể yêu cầu thay đổi gấp.",
+    },
+    {
+      questionText: "What can be inferred about the project status?",
+      optionA: "It has already finished",
+      optionB: "It is moving to the next phase",
+      optionC: "It has been postponed indefinitely",
+      optionD: "It is not approved yet",
+      correctAnswer: 1,
+      explanation: "Đáp án đúng là B vì phase đầu đã hoàn tất và đang chuẩn bị nhiệm vụ tiếp theo.",
+    },
+    {
+      questionText: "Which statement is TRUE according to the email?",
+      optionA: "The report is due next week",
+      optionB: "No meeting is planned",
+      optionC: "Materials should be requested before Wednesday",
+      optionD: "Only managers attend the Friday meeting",
+      correctAnswer: 2,
+      explanation: "Đáp án đúng là C vì email yêu cầu xin dữ liệu trước Wednesday.",
+    },
+    {
+      questionText: "Where would this text most likely appear?",
+      optionA: "A personal diary",
+      optionB: "An internal business email",
+      optionC: "A newspaper advertisement",
+      optionD: "A travel brochure",
+      correctAnswer: 1,
+      explanation: "Đáp án đúng là B vì ngữ cảnh và cách viết là email nội bộ công việc.",
+    },
+  ];
+
+  return {
+    title,
+    content,
+    questions: baseQuestions.slice(0, Math.max(1, input.questionCount)),
+  };
+}
+
+function enforcePartSpecificShape(input: {
+  partType: ReadingPartType;
+  topic: string;
+  level: "Beginner" | "Intermediate" | "Advanced";
+  title: string;
+  content: string;
+  questions: ReadingQuestionInput[];
+  expectedQuestionCount: number;
+}): { title: string; content: string; questions: ReadingQuestionInput[] } {
+  const title = input.title.trim() || `${input.partType} - ${input.topic}`;
+  const content = input.content.trim();
+  const questions = input.questions.slice(0, input.expectedQuestionCount);
+
+  if (input.partType === "Part 6") {
+    if (isPart6ShapeValid(content, questions, input.expectedQuestionCount)) {
+      const normalizedQuestions = questions.map((question, index) => {
+        const blankNo = extractBlankNumberFromQuestion(question.questionText) ?? (index + 1);
+        return {
+          ...question,
+          questionText: `Blank [${blankNo}]`,
+        };
+      });
+
+      return {
+        title,
+        content,
+        questions: normalizedQuestions,
+      };
+    }
+
+    return buildPart6FallbackExercise({
+      topic: input.topic,
+      level: input.level,
+      questionCount: input.expectedQuestionCount,
+    });
+  }
+
+  if (input.partType === "Part 7") {
+    if (isPart7ShapeValid(content, questions, input.expectedQuestionCount)) {
+      return {
+        title,
+        content,
+        questions,
+      };
+    }
+
+    return buildPart7FallbackExercise({
+      topic: input.topic,
+      level: input.level,
+      questionCount: input.expectedQuestionCount,
+    });
+  }
+
+  return {
+    title,
+    content: content || `Read the passage about ${input.topic} and answer the questions.`,
+    questions,
+  };
+}
 
 type ReadingQuestion = {
   question: string;
@@ -419,6 +834,7 @@ function buildReadingQuestionInput(
   question: UnknownRecord,
   index: number,
   content: string,
+  partType?: ReadingPartType,
 ): ReadingQuestionInput {
   const arrayOptions = readArrayFromKeys(question, ["options", "Options", "choices", "Choices"]);
   const objectOptions = readObjectFromKeys(question, ["options", "Options", "choices", "Choices", "optionMap", "OptionMap"]);
@@ -455,8 +871,14 @@ function buildReadingQuestionInput(
     options,
   );
 
-  const questionText = readStringFromKeys(question, ["questionText", "QuestionText", "question", "Question"])
+  const rawQuestionText = readStringFromKeys(question, ["questionText", "QuestionText", "question", "Question"])
     || `Question ${index + 1}`;
+  const blankCandidates = extractBlankNumbers(content);
+  const blankByQuestion = extractBlankNumberFromQuestion(rawQuestionText);
+  const blankFromContent = blankCandidates[index] ?? (index + 1);
+  const questionText = partType === "Part 6"
+    ? `Blank [${blankByQuestion ?? blankFromContent}]`
+    : rawQuestionText;
   const explanationFromAi = readStringFromKeys(
     question,
     ["explanation", "Explanation", "reason", "Reason", "ExplanationInVietnamese", "explanationInVietnamese"],
@@ -614,7 +1036,7 @@ export async function createReadingWithAi(input: {
   topic?: string;
   provider?: string;
 }) {
-  const type = (input.type || "Part 7") as "Part 5" | "Part 6" | "Part 7";
+  const type = normalizePartType(input.type);
   const level = (input.level || "Intermediate") as "Beginner" | "Intermediate" | "Advanced";
 
   const generated = await generateAiReading({
@@ -640,13 +1062,23 @@ export async function generateAiReading(input: {
     return null;
   }
 
-  const expectedQuestionCount = input.type === "Part 5" ? 5 : input.type === "Part 6" ? 6 : 8;
+  const normalizedType = normalizePartType(input.type);
+
+  const expectedQuestionCount = getExpectedQuestionCount(normalizedType);
   const systemPrompt = loadPromptTemplate("reading-ai.system.prompt.txt");
+  const partSpecificConstraint = normalizedType === "Part 6"
+    ? "PART 6 STRICT: Content must include numbered blanks [1]..[N], and every questionText must explicitly reference its blank number."
+    : normalizedType === "Part 7"
+      ? "PART 7 STRICT: Content must be a normal passage with NO numbered blanks, and questions must be comprehension/inference questions only."
+      : "PART 5 STRICT: Keep sentence-level completion format.";
   const userPrompt = [
     `Topic: ${input.topic}`,
     `Level: ${input.level}`,
-    `TOEIC part type: ${input.type}`,
+    `TOEIC part type: ${normalizedType}`,
     `Question count: ${expectedQuestionCount}`,
+    "Passage content MUST be in English.",
+    partSpecificConstraint,
+    "Randomize correctAnswer across 0/1/2/3. Do not put every answer at index 0.",
     "Return JSON with title, content, and questions.",
   ].join("\n");
 
@@ -665,38 +1097,60 @@ export async function generateAiReading(input: {
   const generatedRecord = asRecord(generated);
   const title =
     readStringFromKeys(generatedRecord, ["title", "Title", "name", "Name"]) ||
-    `${input.type} - ${input.topic}`;
-  const content =
+    `${normalizedType} - ${input.topic}`;
+  let content =
     readStringFromKeys(generatedRecord, ["content", "Content", "passage", "Passage", "text", "Text"]) ||
     `Read the passage about ${input.topic} and answer the questions.`;
+
+  if (!isLikelyEnglishPassage(content)) {
+    const translated = await translatePassageToEnglish({
+      provider,
+      partType: normalizedType,
+      content,
+    });
+
+    if (translated) {
+      content = translated;
+    }
+  }
+
   const rawQuestions = extractReadingQuestions(generated);
 
   const aiQuestions: ReadingQuestionInput[] = rawQuestions
     .slice(0, expectedQuestionCount)
-    .map((question, index) => buildReadingQuestionInput(question, index, content));
-
-  if (aiQuestions.length === 0) {
-    return null;
-  }
+    .map((question, index) => buildReadingQuestionInput(question, index, content, normalizedType));
 
   if (aiQuestions.length < expectedQuestionCount) {
     for (let i = aiQuestions.length; i < expectedQuestionCount; i += 1) {
+      const fallbackCorrectAnswer = randomOptionIndex(3);
       aiQuestions.push({
-        questionText: `Question ${i + 1}: What is the best answer according to the passage?`,
+        questionText: normalizedType === "Part 6"
+          ? `Blank [${i + 1}]`
+          : `Question ${i + 1}: What is the best answer according to the passage?`,
         optionA: "Option A",
         optionB: "Option B",
         optionC: "Option C",
         optionD: "Option D",
-        correctAnswer: 0,
+        correctAnswer: fallbackCorrectAnswer,
         explanation: "Dựa vào thông tin trong bài đọc để chọn đáp án đúng nhất.",
       });
     }
   }
 
+  const partSafeExercise = enforcePartSpecificShape({
+    partType: normalizedType,
+    topic: input.topic,
+    level: input.level,
+    title,
+    content,
+    questions: aiQuestions.slice(0, expectedQuestionCount),
+    expectedQuestionCount,
+  });
+
   if (!appConfig.db.enabled) {
     const now = new Date().toISOString();
     const id = inMemoryReadingId++;
-    const questions = aiQuestions.map((q, idx) => ({
+    const questions = partSafeExercise.questions.map((q, idx) => ({
       Id: idx + 1,
       QuestionText: q.questionText,
       questionText: q.questionText,
@@ -708,15 +1162,15 @@ export async function generateAiReading(input: {
       explanation: q.explanation ?? "",
     }));
 
-    const duration = input.type === "Part 5" ? 10 : input.type === "Part 6" ? 15 : 20;
+    const duration = normalizedType === "Part 5" ? 10 : normalizedType === "Part 6" ? 15 : 20;
     const exercise: InMemoryReadingExercise = {
       ExerciseId: id,
       Id: id,
-      Title: title,
-      Name: title,
-      Content: content,
+      Title: partSafeExercise.title,
+      Name: partSafeExercise.title,
+      Content: partSafeExercise.content,
       Level: input.level,
-      Type: input.type,
+      Type: normalizedType,
       Category: input.topic,
       EstimatedMinutes: duration,
       Duration: duration,
@@ -742,7 +1196,7 @@ export async function generateAiReading(input: {
     requestedByTaiKhoanId: Number(input.requestedByTaiKhoanId ?? 0),
     title,
     content,
-    partType: input.type,
+    partType: normalizedType,
     level: input.level,
     sourceType: "ai",
     topic: input.topic,
@@ -756,7 +1210,7 @@ export async function generateAiReading(input: {
 
   await addReadingQuestions(
     created.ExerciseId,
-    aiQuestions,
+    partSafeExercise.questions,
     Number(input.requestedByTaiKhoanId ?? 0),
   );
   const exercise = await getReadingExerciseById(
@@ -809,7 +1263,9 @@ export async function submitReadingResult(input: {
     return { success: false, message: "User not found" };
   }
 
-  const exercise = await readingRepository.getById(input.exerciseId, nguoiDungId);
+  const exercise =
+    (await readingRepository.getById(input.exerciseId, nguoiDungId))
+    ?? (await readingRepository.getByIdAnyUser(input.exerciseId));
   if (!exercise) {
     return { success: false, message: "Exercise not found" };
   }
@@ -826,7 +1282,7 @@ export async function submitReadingResult(input: {
 
   const score = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 10000) / 100 : 0;
 
-  await readingRepository.addCompletion({
+  const completion = await readingRepository.addCompletion({
     nguoiDungId,
     exerciseId: input.exerciseId,
     answers: input.answers,
@@ -839,7 +1295,16 @@ export async function submitReadingResult(input: {
     score,
     totalQuestions,
     correctAnswers,
-    completedAt: input.completedAt ? new Date(input.completedAt) : new Date(),
+    completedAt: (() => {
+      const completedAtRaw = input.completedAt ? new Date(input.completedAt) : new Date();
+      return Number.isNaN(completedAtRaw.getTime()) ? new Date() : completedAtRaw;
+    })(),
+  });
+
+  triggerLearningInsightsRefresh({
+    nguoiDungId,
+    attemptNumber: completion.attemptNumber,
+    source: "reading_submit",
   });
 
   return {

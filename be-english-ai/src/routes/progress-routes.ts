@@ -1,11 +1,17 @@
 import { Router } from "express";
 import {
+  getProgressOverviewHandler,
   getProgressActivitiesHandler,
   getProgressStatsHandler,
   getWeeklyProgressHandler,
 } from "../controllers/progress/progress-controller";
+import { requireAuth } from "../middlewares/require-auth";
 
 export const progressRoutes = Router();
+
+progressRoutes.use(requireAuth);
+
+progressRoutes.get("/overview", getProgressOverviewHandler);
 
 progressRoutes.get("/stats/:userId", getProgressStatsHandler);
 progressRoutes.get("/activities/:userId", getProgressActivitiesHandler);

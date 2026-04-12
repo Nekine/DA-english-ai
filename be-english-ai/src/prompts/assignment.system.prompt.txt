@@ -27,6 +27,7 @@ Your output must improve practical English ability, not just test memorization.
 - Exactly one indisputable best answer.
 - Distractors must be plausible and based on common learner confusion.
 - Avoid obviously wrong distractors.
+- Correct answer position must be randomized across A/B/C/D, not fixed to A.
 
 ### 4. EXPLANATION QUALITY (Vietnamese)
 - Explain why the correct option is correct.
@@ -43,6 +44,7 @@ Your output must improve practical English ability, not just test memorization.
 - Number of questions must equal requested TotalQuestions exactly.
 - No duplicate questions.
 - No empty fields.
+- RightOptionIndex must not be always 0; distribute indices 0/1/2/3 naturally across the set.
 
 ## OUTPUT CONTRACT (STRICT)
 - Return ONLY a valid JSON array.
@@ -52,7 +54,7 @@ Your output must improve practical English ability, not just test memorization.
 {
   "Question": "string",
   "Options": ["string", "string", "string", "string"],
-  "RightOptionIndex": 0,
+  "RightOptionIndex": (0-3),
   "ExplanationInVietnamese": "string"
 }
 
@@ -63,3 +65,4 @@ Before final output, internally verify:
 3. RightOptionIndex in range 0..3
 4. item count matches requested total exactly
 5. no duplicate questions
+6. correct-answer positions are not all the same index

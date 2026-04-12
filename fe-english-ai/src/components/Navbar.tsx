@@ -604,18 +604,22 @@ const Navbar = () => {
         </div>
 
         <div className="md:hidden flex items-center gap-4">
-          {navItems.map((item) => (
+          {navItems.map((item) => {
+            const mobilePath = item.path ?? item.subItems?.[0]?.path ?? '/index';
+
+            return (
             <Link
-              key={item.path}
-              to={item.path}
+              key={item.path ?? item.name}
+              to={mobilePath}
               className={cn(
                 "flex items-center justify-center",
-                location.pathname === item.path ? item.color : "text-muted-foreground"
+                location.pathname === mobilePath ? item.color : "text-muted-foreground"
               )}
             >
               <item.icon className="w-5 h-5" />
             </Link>
-          ))}
+            );
+          })}
         </div>
       </div>
     </header>

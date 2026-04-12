@@ -162,6 +162,8 @@ export class AuthRepository extends BaseRepository {
 
     const result = await request.query<{ id: number }>(`
       DECLARE @newAccount TABLE (TaiKhoanId INT);
+      DECLARE @fallbackGoogleId NVARCHAR(255) = CONCAT(N'local-google-', CONVERT(NVARCHAR(36), NEWID()));
+      DECLARE @fallbackFacebookId NVARCHAR(255) = CONCAT(N'local-facebook-', CONVERT(NVARCHAR(36), NEWID()));
 
       INSERT INTO dbo.TaiKhoan (
         TenDangNhap,
@@ -169,6 +171,8 @@ export class AuthRepository extends BaseRepository {
         MatKhauHash,
         LoaiTaiKhoan,
         PhuongThucDangNhap,
+        MaGoogle,
+        MaFacebook,
         TrangThaiTaiKhoan,
         NgayCapNhat
       )
@@ -179,6 +183,8 @@ export class AuthRepository extends BaseRepository {
         @passwordHash,
         N'basic',
         N'local',
+        @fallbackGoogleId,
+        @fallbackFacebookId,
         N'active',
         SYSDATETIME()
       );
@@ -235,6 +241,8 @@ export class AuthRepository extends BaseRepository {
 
     const result = await request.query<{ id: number }>(`
       DECLARE @newAccount TABLE (TaiKhoanId INT);
+      DECLARE @fallbackGoogleId NVARCHAR(255) = CONCAT(N'oauth-google-', CONVERT(NVARCHAR(36), NEWID()));
+      DECLARE @fallbackFacebookId NVARCHAR(255) = CONCAT(N'oauth-facebook-', CONVERT(NVARCHAR(36), NEWID()));
 
       INSERT INTO dbo.TaiKhoan (
         TenDangNhap,
@@ -255,8 +263,8 @@ export class AuthRepository extends BaseRepository {
         @passwordHash,
         N'basic',
         ${input.provider === "google" ? "N'google'" : "N'facebook'"},
-        @googleId,
-        @facebookId,
+        COALESCE(@googleId, @fallbackGoogleId),
+        COALESCE(@facebookId, @fallbackFacebookId),
         N'active',
         SYSDATETIME(),
         SYSDATETIME()

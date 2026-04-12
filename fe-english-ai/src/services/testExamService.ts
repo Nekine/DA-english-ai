@@ -72,6 +72,39 @@ export interface CreateTestExamPayload {
   SelectedParts?: number[];
 }
 
+export interface SubmitTestExamAnswerPayload {
+  questionId: string;
+  partNumber: number;
+  questionNumber: number;
+  selectedAnswer: string;
+}
+
+export interface SubmitTestExamPayload {
+  Answers: SubmitTestExamAnswerPayload[];
+  CompletedAt?: string;
+  DurationMinutes?: number;
+}
+
+export interface SubmitTestExamPartSummary {
+  partNumber: number;
+  partTitle: string;
+  totalQuestions: number;
+  correctAnswers: number;
+  incorrectAnswers: number;
+  score: number;
+}
+
+export interface SubmitTestExamResponse {
+  success: boolean;
+  message: string;
+  score: number;
+  totalQuestions: number;
+  correctAnswers: number;
+  incorrectAnswers: number;
+  levelEstimate?: string;
+  partSummaries?: SubmitTestExamPartSummary[];
+}
+
 export const testExamService = {
   async getList(): Promise<TestExamSummary[]> {
     return apiService.get<TestExamSummary[]>('/api/TestExam/list');
@@ -87,5 +120,9 @@ export const testExamService = {
 
   async create(payload: CreateTestExamPayload): Promise<TestExamSummary> {
     return apiService.post<TestExamSummary, CreateTestExamPayload>('/api/TestExam/create', payload);
+  },
+
+  async submit(testId: string, payload: SubmitTestExamPayload): Promise<SubmitTestExamResponse> {
+    return apiService.post<SubmitTestExamResponse, SubmitTestExamPayload>(`/api/TestExam/${testId}/submit`, payload);
   },
 };

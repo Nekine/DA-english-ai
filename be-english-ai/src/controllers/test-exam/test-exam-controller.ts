@@ -5,6 +5,7 @@ import {
   getTestExamById,
   getTestExamSuggestedTopics,
   listTestExams,
+  submitTestExamResult,
 } from "../../services/test-exam-service";
 
 function getAuthenticatedTaiKhoanId(req: Request): number {
@@ -96,4 +97,74 @@ export async function createTestExamHandler(req: Request, res: Response): Promis
   });
 
   res.status(HTTP_STATUS.CREATED).json(created);
+}
+
+export async function submitTestExamHandler(req: Request, res: Response): Promise<void> {
+  const requestedByTaiKhoanId = getAuthenticatedTaiKhoanId(req);
+  if (!Number.isInteger(requestedByTaiKhoanId) || requestedByTaiKhoanId <= 0) {
+    res.status(HTTP_STATUS.UNAUTHORIZED).json({ message: "Invalid or missing token" });
+    return;
+  }
+
+  const testId = String(req.params.testId ?? "").trim();
+  if (!testId) {
+    res.status(HTTP_STATUS.BAD_REQUEST).json({ message: "Test ID is required" });
+    return;
+  }
+
+  const body = req.body as {
+    Answers?: Array<{
+      questionId?: string;
+      partNumber?: number;
+      questionNumber?: number;
+      answer?: string;
+      selectedAnswer?: string;
+      selectedOption?: string;
+    }>;
+    answers?: Array<{
+      questionId?: string;
+      partNumber?: number;
+      questionNumber?: number;
+      answer?: string;
+      selectedAnswer?: string;
+      selectedOption?: string;
+    }>;
+    CompletedAt?: string;
+    completedAt?: string;
+    DurationMinutes?: number;
+    durationMinutes?: number;
+  };
+
+  const answers = Array.isArray(body?.Answers)
+    ? body.Answers
+    : Array.isArray(body?.answers)
+      ? body.answers
+      : [];
+
+  const completedAt = typeof body?.CompletedAt === "string"
+    ? body.CompletedAt
+    : typeof body?.completedAt === "string"
+      ? body.completedAt
+      : undefined;
+
+  const durationMinutes = Number.isFinite(body?.DurationMinutes)
+    ? Number(body.DurationMinutes)
+    : Number.isFinite(body?.durationMinutes)
+      ? Number(body.durationMinutes)
+      : undefined;
+
+  const result = await submitTestExamResult({
+    requestedByTaiKhoanId,
+    testId,
+    answers,
+    ...(completedAt ? { completedAt } : {}),
+    ...(typeof durationMinutes === "number" ? { durationMinutes } : {}),
+  });
+
+  if (!result.success) {
+    res.status(HTTP_STATUS.BAD_REQUEST).json({ message: result.message });
+    return;
+  }
+
+  res.status(HTTP_STATUS.OK).json(result);
 }

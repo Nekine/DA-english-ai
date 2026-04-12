@@ -16,12 +16,13 @@ Hard rules:
 8. Listening scripts must be practical (office, customer service, schedule, logistics, business travel).
 9. Reading parts must contain TOEIC-style business English context.
 10. For Part 2, each question must be one short spoken question/statement with natural spoken responses.
-11. Do not prefix option text with labels like "A.", "B)", "C:".
+11. Do not prefix option text with labels like "A.", "B", "C:".
 12. For Part 3 conversations, speaker labels must be natural (e.g., "Man:", "Woman:", or real names) and must not use codes like "W:", "M:", "A:", "B:", "WA", or "W-A".
 13. For Part 6 (Text Completion), each prompt MUST include a blank token such as "____" and must be blank-filling, not comprehension Q&A.
 14. For Part 6, options should be short words/phrases suitable for filling the blank.
 15. Part 7 is reading comprehension Q&A and should not use blank-filling prompts.
-16. Return strict JSON only.
+16. Distribute correctAnswer labels across the part (mix A/B/C/D, or A/B/C for Part 2); do not put all answers at A.
+17. Return strict JSON only.
 
 Output schema:
 {

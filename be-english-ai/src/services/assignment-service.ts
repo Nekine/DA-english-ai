@@ -247,6 +247,23 @@ function normalizeRightOptionIndex(rawValue: unknown, options: string[]): number
   return 0;
 }
 
+function resolveRightOptionIndex(rawValue: unknown, options: string[]): number | null {
+  if (rawValue === null || rawValue === undefined) {
+    return null;
+  }
+
+  if (typeof rawValue === "string" && rawValue.trim().length === 0) {
+    return null;
+  }
+
+  return normalizeRightOptionIndex(rawValue, options);
+}
+
+function randomOptionIndex(maxInclusive: number): number {
+  const safeMax = Math.max(0, Math.trunc(maxInclusive));
+  return Math.floor(Math.random() * (safeMax + 1));
+}
+
 function extractAnswerIndexFromExplanation(explanation: string, optionsLength: number): number | null {
   const normalized = explanation
     .normalize("NFD")
@@ -336,19 +353,22 @@ function toQuizQuestion(record: UnknownRecord, index: number, topic: string): Qu
     readStringFromKeys(record, ["Question", "question", "QuestionText", "questionText", "q", "prompt"]) ||
     `Question ${index + 1} about ${topic}`;
 
-  let rightOptionIndex = normalizeRightOptionIndex(
+  const rawRightOptionValue =
     record.RightOptionIndex
-      ?? record.rightOptionIndex
-      ?? record.correctAnswer
-      ?? record.CorrectAnswer
-      ?? record.answer
-      ?? record.Answer
-      ?? record.correctOption
-      ?? record.CorrectOption
-      ?? record.correct
-      ?? record.Correct,
-    options,
-  );
+    ?? record.rightOptionIndex
+    ?? record.correctAnswer
+    ?? record.CorrectAnswer
+    ?? record.answer
+    ?? record.Answer
+    ?? record.correctOption
+    ?? record.CorrectOption
+    ?? record.correct
+    ?? record.Correct;
+
+  const resolvedRightOptionIndex = resolveRightOptionIndex(rawRightOptionValue, options);
+  let rightOptionIndex = typeof resolvedRightOptionIndex === "number"
+    ? resolvedRightOptionIndex
+    : randomOptionIndex(3);
 
   const rawExplanation =
     readStringFromKeys(record, [
@@ -362,7 +382,7 @@ function toQuizQuestion(record: UnknownRecord, index: number, topic: string): Qu
     `Đáp án đúng là "${options[rightOptionIndex] ?? "A"}" vì phù hợp ngữ cảnh và cấu trúc ngữ pháp của câu.`;
 
   const explanationIndex = extractAnswerIndexFromExplanation(rawExplanation, options.length);
-  if (typeof explanationIndex === "number") {
+  if (resolvedRightOptionIndex === null && typeof explanationIndex === "number") {
     rightOptionIndex = explanationIndex;
   }
 
@@ -374,6 +394,52 @@ function toQuizQuestion(record: UnknownRecord, index: number, topic: string): Qu
     RightOptionIndex: rightOptionIndex,
     ExplanationInVietnamese: explanation,
   };
+}
+
+function moveOptionToIndex(options: string[], fromIndex: number, toIndex: number): string[] {
+  const safeFrom = Math.max(0, Math.min(options.length - 1, fromIndex));
+  const safeTo = Math.max(0, Math.min(options.length - 1, toIndex));
+  if (safeFrom === safeTo) {
+    return [...options];
+  }
+
+  const moved = [...options];
+  const [target] = moved.splice(safeFrom, 1);
+  if (typeof target !== "string") {
+    return [...options];
+  }
+  moved.splice(safeTo, 0, target);
+  return moved;
+}
+
+function rebalanceAnswerIndexDistribution(questions: QuizQuestion[]): QuizQuestion[] {
+  if (questions.length < 2) {
+    return questions;
+  }
+
+  const uniqueIndices = new Set(
+    questions.map((question) => Math.max(0, Math.min(3, Math.trunc(question.RightOptionIndex)))),
+  );
+
+  if (uniqueIndices.size > 1) {
+    return questions;
+  }
+
+  return questions.map((question, index) => {
+    const currentIndex = Math.max(0, Math.min(3, Math.trunc(question.RightOptionIndex)));
+    const targetIndex = index % 4;
+    const remappedOptions = moveOptionToIndex(question.Options, currentIndex, targetIndex);
+
+    return {
+      ...question,
+      Options: remappedOptions,
+      RightOptionIndex: targetIndex,
+      ExplanationInVietnamese: normalizeExplanationAnswerLabel(
+        question.ExplanationInVietnamese,
+        targetIndex,
+      ),
+    };
+  });
 }
 
 export async function generateAssignments(input: GenerateAssignmentInput): Promise<{ status: number; error?: string; data?: QuizQuestion[] }> {
@@ -401,6 +467,7 @@ export async function generateAssignments(input: GenerateAssignmentInput): Promi
     `English level: ${input.EnglishLevel} - ${levelDescription}`,
     `TotalQuestions: ${totalQuestions}`,
     `AssignmentTypes: ${assignmentTypeText}`,
+    "Randomize RightOptionIndex across 0/1/2/3. Do not place all correct answers at index 0.",
     "Return ONLY JSON array with exactly TotalQuestions items.",
   ].join("\n");
 
@@ -422,16 +489,18 @@ export async function generateAssignments(input: GenerateAssignmentInput): Promi
 
     if (normalized.length < totalQuestions) {
       for (let i = normalized.length; i < totalQuestions; i += 1) {
+        const fallbackRightOptionIndex = randomOptionIndex(3);
         normalized.push({
           Question: `Question ${i + 1} about ${topic}`,
           Options: ["Option A", "Option B", "Option C", "Option D"],
-          RightOptionIndex: 0,
+          RightOptionIndex: fallbackRightOptionIndex,
           ExplanationInVietnamese: "Dựa vào ngữ cảnh để chọn đáp án phù hợp nhất.",
         });
       }
     }
 
-    return { status: 201, data: normalized.slice(0, totalQuestions) };
+    const finalized = rebalanceAnswerIndexDistribution(normalized.slice(0, totalQuestions));
+    return { status: 201, data: finalized };
   } catch (error) {
     return {
       status: getHttpStatusFromError(error, 502),

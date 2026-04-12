@@ -51,6 +51,7 @@ function normalizeProvider(provider: string | undefined): AiProvider | null {
 export async function generateChatbotAnswer(input: ChatbotInput): Promise<{ status: number; error?: string; text?: string }> {
   const question = (input.request.Question || "").trim();
   const provider = normalizeProvider(input.provider);
+  const history = input.request.ChatHistory ?? [];
 
   if (!provider) {
     return { status: 400, error: "Unsupported provider" };
@@ -60,13 +61,12 @@ export async function generateChatbotAnswer(input: ChatbotInput): Promise<{ stat
     return { status: 400, error: "Question is required" };
   }
 
-  if (countWords(question) > 30) {
-    return { status: 400, error: "Question must be 30 words or fewer" };
+  if (countWords(question) > 200) {
+    return { status: 400, error: "Question is too long (max 200 words)" };
   }
 
   const username = input.username.trim() || "ban";
   const level = levelLabel(Number(input.englishLevel) || 3);
-  const history = input.request.ChatHistory ?? [];
 
   const systemTemplate = loadPromptTemplate("chatbot.system.prompt.txt");
   const systemPrompt = renderPrompt(systemTemplate, {
@@ -82,16 +82,17 @@ export async function generateChatbotAnswer(input: ChatbotInput): Promise<{ stat
     .join("\n");
 
   const userPrompt = [
-    `Provider selected by user: ${provider}`,
-    `Reasoning enabled: ${input.enableReasoning ? "true" : "false"}`,
-    `Searching enabled: ${input.enableSearching ? "true" : "false"}`,
-    "",
     "Conversation history:",
     chatHistoryText || "(empty)",
     "",
     "Current question:",
     question,
     "",
+    "Important:",
+    "- Always answer the user's question.",
+    "- If the topic is not directly about English, answer briefly then convert it into English-learning guidance about the same topic.",
+    "- Include vocabulary, sentence examples, and a short practice task whenever possible.",
+    "- Keep the final response in Vietnamese markdown.",
     "Return final answer in Vietnamese markdown.",
   ].join("\n");
 
@@ -100,7 +101,7 @@ export async function generateChatbotAnswer(input: ChatbotInput): Promise<{ stat
       provider,
       systemPrompt,
       userPrompt,
-      temperature: 0.4,
+      temperature: 0.1,
     });
 
     return { status: 200, text };

@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
+import { sentenceWritingApi } from "@/lib/api";
 
 interface SentenceData {
   id: number;
@@ -136,7 +137,6 @@ const SentencePractice = () => {
     // Move to next sentence
     if (currentIndex < totalSentences - 1) {
       setCurrentIndex(currentIndex + 1);
-      toast.success("Đã lưu câu trả lời!");
     }
   };
 
@@ -184,12 +184,15 @@ const SentencePractice = () => {
       toast.error("Vui lòng hoàn thành tất cả các câu trước khi nộp bài!");
       return;
     }
+
+    const numericExerciseId = Number(exerciseId);
+    if (!Number.isInteger(numericExerciseId) || numericExerciseId <= 0) {
+      toast.error("Không tìm thấy mã bài luyện để lưu kết quả. Vui lòng quay lại tạo bài mới.");
+      return;
+    }
     
     setUserAnswers(allAnswers);
     setIsSubmitting(true);
-    
-    console.log("📤 Submitting all answers:", allAnswers);
-    console.log("🎯 Topic:", topic, "Level:", level);
     
     try {
       // Compare user answers with correct answers (no AI needed!)
@@ -217,18 +220,7 @@ const SentencePractice = () => {
         const normalizedCorrectAnswer = normalizeText(sentence.correctAnswer);
         
         const isMatch = normalizedUserAnswer === normalizedCorrectAnswer && normalizedCorrectAnswer !== '';
-        
-        console.log(`📝 Sentence ${index + 1}/${allAnswers.length}:`);
-        console.log(`  Vietnamese: "${answer.vietnamese}"`);
-        console.log(`  User original: "${answer.userTranslation}"`);
-        console.log(`  User normalized: "${normalizedUserAnswer}"`);
-        console.log(`  ⚠️ CRITICAL - sentence object:`, sentence);
-        console.log(`  ⚠️ CRITICAL - sentence.correctAnswer:`, sentence.correctAnswer);
-        console.log(`  ⚠️ CRITICAL - typeof sentence.correctAnswer:`, typeof sentence.correctAnswer);
-        console.log(`  Correct original: "${sentence.correctAnswer}"`);
-        console.log(`  Correct normalized: "${normalizedCorrectAnswer}"`);
-        console.log(`  Match: ${isMatch ? '✅' : '❌'}`);
-        
+
         // Create review result
         const correctAnswer = sentence.correctAnswer || "";
         console.log(`  ⚠️ Setting correctAnswer: "${correctAnswer}" (length: ${correctAnswer.length})`);
@@ -265,29 +257,17 @@ const SentencePractice = () => {
         console.warn("⚠️ Some reviews are invalid!");
       }
 
-      if (Number.isInteger(exerciseId) && Number(exerciseId) > 0) {
-        try {
-          await sentenceWritingApi.submitSentenceWritingResult({
-            exerciseId: Number(exerciseId),
-            answers: allAnswers.map((answer) => ({
-              sentenceId: answer.sentenceId,
-              userTranslation: answer.userTranslation,
-            })),
-            completedAt: new Date().toISOString(),
-          });
-        } catch (persistError) {
-          console.error("⚠️ Failed to persist sentence-writing attempt:", persistError);
-        }
-      }
+      await sentenceWritingApi.submitSentenceWritingResult({
+        exerciseId: numericExerciseId,
+        answers: allAnswers.map((answer) => ({
+          sentenceId: answer.sentenceId,
+          userTranslation: answer.userTranslation,
+        })),
+        completedAt: new Date().toISOString(),
+      });
       
       setReviews(reviewResults);
       setIsCompleted(true);
-      
-      const finalCorrectCount = reviewResults.filter(r => r.isCorrect).length;
-      
-      console.log("📊 Final stats:", { correctCount: finalCorrectCount, total: reviewResults.length });
-      
-      toast.success(`Hoàn thành! ${finalCorrectCount}/${reviewResults.length} câu đúng`);
       
       // Scroll to top to see results
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -325,15 +305,10 @@ const SentencePractice = () => {
   console.log("🔍 Render check - isCompleted:", isCompleted, "reviews.length:", reviews.length);
   
   if (isCompleted && reviews.length > 0) {
-    console.log("✅ Rendering results page");
-    console.log("✅ Reviews with correctAnswer:", reviews.map(r => ({ 
-      id: r.sentenceId, 
-      correctAnswer: r.correctAnswer,
-      hasCorrectAnswer: !!r.correctAnswer 
-    })));
+    
     const correctCount = reviews.filter(r => r.isCorrect).length;
     
-    console.log("📊 Results page stats:", { correctCount, totalReviews: reviews.length });
+
     
     return (
       <div className="min-h-screen bg-gradient-soft">
@@ -398,9 +373,7 @@ const SentencePractice = () => {
                     ✨ Kết quả chấm nhanh bởi AI
                   </h4>
                   <p className="text-sm text-muted-foreground leading-relaxed">
-                    Đây là kết quả đánh giá tự động do AI thực hiện, mang tính chất <strong>tham khảo</strong> và có thể chưa hoàn toàn chính xác. 
-                    Kết quả chấm chi tiết và chính thức sẽ được <strong>cô giáo trực tiếp đánh giá</strong> và gửi đến bạn trong <strong>vài giờ tới</strong>. 
-                    Cảm ơn bạn đã kiên nhẫn chờ đợi! 📝✨
+                    Đây là kết quả đánh giá tự động do AI thực hiện, mang tính chất <strong>tham khảo</strong> và có thể chưa hoàn toàn chính xác.📝✨
                   </p>
                 </div>
               </div>

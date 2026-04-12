@@ -5,6 +5,15 @@ import { loadPromptTemplate } from "./ai/prompt-loader";
 
 const MIN_WORDS = 15;
 const MAX_WORDS = 1200;
+const MAX_REVIEW_ATTEMPTS = 3;
+const VIETNAMESE_DIACRITICS_PATTERN =
+  /[ăâđêôơưáàảãạắằẳẵặấầẩẫậéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/i;
+
+const COMMON_ENGLISH_HINT_PATTERN =
+  /\b(the|is|are|am|to|of|for|with|and|you|your|this|that|in|on|as|it|be|was|were|have|has|had)\b/gi;
+
+const COMMON_VIETNAMESE_HINT_PATTERN =
+  /\b(va|la|cua|trong|voi|ban|nen|khong|de|can|mot|nhung|diem|cau|bai|viet|ngu\s*phap|tu\s*vung)\b/gi;
 
 function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -35,6 +44,40 @@ function normalizeProvider(provider: string | undefined): AiProvider | null {
   const normalized = (provider ?? "openai").trim().toLowerCase();
   if (normalized === "gemini" || normalized === "openai" || normalized === "xai") {
     return normalized;
+  }
+
+  return null;
+}
+
+function countMatches(text: string, pattern: RegExp): number {
+  const matches = text.match(pattern);
+  return matches ? matches.length : 0;
+}
+
+function toNoDiacritics(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D");
+}
+
+function getReviewOutputIssue(output: string): string | null {
+  const trimmed = output.trim();
+  if (!trimmed) {
+    return "Feedback is empty";
+  }
+
+  if (!VIETNAMESE_DIACRITICS_PATTERN.test(trimmed)) {
+    return "Feedback must be Vietnamese with diacritics.";
+  }
+
+  const lower = trimmed.toLowerCase();
+  const lowerNoDiacritics = toNoDiacritics(lower);
+  const englishHints = countMatches(lowerNoDiacritics, COMMON_ENGLISH_HINT_PATTERN);
+  const vietnameseHints = countMatches(lowerNoDiacritics, COMMON_VIETNAMESE_HINT_PATTERN);
+  if (englishHints > vietnameseHints + 8) {
+    return "Feedback must be primarily Vietnamese.";
   }
 
   return null;
@@ -78,18 +121,43 @@ export async function generateReviewText(input: {
     "Student writing:",
     content,
     "",
+    "Important language rule: response must be Vietnamese with full diacritics.",
+    "Do not write Vietnamese without diacritics.",
     "Return markdown exactly with the required headings.",
   ].join("\n");
 
   try {
-    const feedback = await generateTextFromProvider({
-      provider,
-      systemPrompt,
-      userPrompt,
-      temperature: 0.4,
-    });
+    let issues: string[] = [];
 
-    return { status: 200, text: feedback };
+    for (let attempt = 1; attempt <= MAX_REVIEW_ATTEMPTS; attempt += 1) {
+      const promptWithIssues = issues.length > 0
+        ? [
+            userPrompt,
+            "",
+            `Previous output issues: ${issues.join("; ")}`,
+            "Rewrite full feedback to fix all issues above.",
+          ].join("\n")
+        : userPrompt;
+
+      const feedback = await generateTextFromProvider({
+        provider,
+        systemPrompt,
+        userPrompt: promptWithIssues,
+        temperature: 0.1,
+      });
+
+      const issue = getReviewOutputIssue(feedback);
+      if (!issue) {
+        return { status: 200, text: feedback };
+      }
+
+      issues = [issue];
+    }
+
+    return {
+      status: 502,
+      error: "AI feedback is not in valid Vietnamese with diacritics after retries",
+    };
   } catch (error) {
     return {
       status: getHttpStatusFromError(error, 502),

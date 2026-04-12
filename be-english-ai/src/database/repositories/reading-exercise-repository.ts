@@ -126,6 +126,38 @@ export class ReadingExerciseRepository extends BaseRepository {
     return result.recordset[0] ?? null;
   }
 
+  async getByIdAnyUser(id: number): Promise<ReadingExerciseRow | null> {
+    const request = await this.createRequest();
+    this.bindInput(request, "id", sql.Int, id);
+
+    const result = await request.query<ReadingExerciseRow>(`
+      SELECT TOP (1)
+        bt.BaiTapAIId AS id,
+        bt.NguoiDungId AS nguoiDungId,
+        bt.ChuDeBaiTap AS topic,
+        JSON_VALUE(bt.NoiDungJson, '$.title') AS title,
+        JSON_VALUE(bt.NoiDungJson, '$.content') AS content,
+        COALESCE(bt.TrinhDo, JSON_VALUE(bt.NoiDungJson, '$.level')) AS level,
+        JSON_VALUE(bt.NoiDungJson, '$.type') AS type,
+        JSON_VALUE(bt.NoiDungJson, '$.sourceType') AS sourceType,
+        JSON_VALUE(bt.NoiDungJson, '$.category') AS category,
+        TRY_CONVERT(INT, JSON_VALUE(bt.NoiDungJson, '$.estimatedMinutes')) AS estimatedMinutes,
+        bt.NguoiDungId AS createdBy,
+        JSON_VALUE(bt.NoiDungJson, '$.description') AS description,
+        COALESCE(JSON_QUERY(bt.NoiDungJson, '$.questions'), N'[]') AS questionsJson,
+        COALESCE(JSON_QUERY(bt.NoiDungJson, '$.correctAnswers'), N'[]') AS correctAnswersJson,
+        CAST(CASE WHEN bt.TrangThaiBaiTap = N'active' THEN 1 ELSE 0 END AS BIT) AS isActive,
+        bt.NgayTao AS createdAt,
+        bt.NgayCapNhat AS updatedAt
+      FROM dbo.BaiTapAI bt
+      WHERE bt.BaiTapAIId = @id
+        AND bt.KieuBaiTap = N'reading'
+        AND bt.TrangThaiBaiTap = N'active'
+    `);
+
+    return result.recordset[0] ?? null;
+  }
+
   async createPassage(input: {
     title: string;
     content: string;
@@ -311,14 +343,16 @@ export class ReadingExerciseRepository extends BaseRepository {
     totalQuestions: number;
     correctAnswers: number;
     completedAt: Date;
-  }): Promise<number> {
+  }): Promise<{ completionId: number; attemptNumber: number }> {
     const pool = await getDbPool();
-    const transaction = new sql.Transaction(pool);
+    const transaction = pool.transaction();
+    let transactionStarted = false;
 
     try {
       await transaction.begin();
+      transactionStarted = true;
 
-      const attemptRequest = new sql.Request(transaction);
+      const attemptRequest = transaction.request();
       this.bindInput(attemptRequest, "nguoiDungId", sql.Int, input.nguoiDungId);
       this.bindInput(attemptRequest, "exerciseId", sql.Int, input.exerciseId);
 
@@ -364,7 +398,7 @@ export class ReadingExerciseRepository extends BaseRepository {
         answers: input.answers,
       };
 
-      const headerRequest = new sql.Request(transaction);
+      const headerRequest = transaction.request();
       this.bindInput(headerRequest, "exerciseId", sql.Int, input.exerciseId);
       this.bindInput(headerRequest, "nguoiDungId", sql.Int, input.nguoiDungId);
       this.bindInput(headerRequest, "lanThu", sql.Int, nextAttempt);
@@ -415,48 +449,21 @@ export class ReadingExerciseRepository extends BaseRepository {
 
       const baiLamId = headerResult.recordset[0]?.id ?? 0;
 
-      for (const detail of answeredDetails) {
-        const detailRequest = new sql.Request(transaction);
-        this.bindInput(detailRequest, "baiLamId", sql.Int, baiLamId);
-        this.bindInput(detailRequest, "questionOrder", sql.Int, detail.questionOrder);
-        this.bindInput(detailRequest, "questionType", sql.NVarChar(50), detail.questionType);
-        this.bindInput(detailRequest, "userAnswer", sql.NVarChar(sql.MAX), detail.selectedText);
-        this.bindInput(detailRequest, "correctAnswer", sql.NVarChar(sql.MAX), detail.correctText);
-        this.bindInput(detailRequest, "isCorrect", sql.Bit, detail.isCorrect);
-        this.bindInput(detailRequest, "score", sql.Decimal(5, 2), detail.scorePerQuestion);
-        this.bindInput(detailRequest, "ghiChuAI", sql.NVarChar(sql.MAX), detail.note);
-
-        await detailRequest.query(`
-          INSERT INTO dbo.ChiTietChamBaiBaiTapAI (
-            BaiLamBaiTapAIId,
-            SoThuTuCauHoi,
-            KieuCauHoi,
-            CauTraLoiNguoiDung,
-            DapAnDung,
-            DungSai,
-            Diem,
-            GhiChuAI
-          )
-          VALUES (
-            @baiLamId,
-            @questionOrder,
-            @questionType,
-            @userAnswer,
-            @correctAnswer,
-            @isCorrect,
-            @score,
-            @ghiChuAI
-          )
-        `);
-      }
+      // v4 schema has no per-question detail table, so persistence is stored in BaiLamBaiTapAI JSON columns.
 
       await transaction.commit();
-      return baiLamId;
+      transactionStarted = false;
+      return {
+        completionId: baiLamId,
+        attemptNumber: nextAttempt,
+      };
     } catch (error) {
-      try {
-        await transaction.rollback();
-      } catch {
-        // Ignore rollback errors when transaction is already finalized.
+      if (transactionStarted) {
+        try {
+          await transaction.rollback();
+        } catch {
+          // Ignore rollback errors when transaction is already finalized.
+        }
       }
       throw error;
     }

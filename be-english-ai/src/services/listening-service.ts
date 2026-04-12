@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { generateJsonFromProvider, type AiProvider } from "./ai/ai-client";
 import { loadPromptTemplate } from "./ai/prompt-loader";
+import { triggerLearningInsightsRefresh } from "./learning-insights-service";
 import { appConfig } from "../config";
 import { exerciseRepository } from "../database/repositories/exercise-repository";
 import { logger } from "../utils/logger";
@@ -446,8 +447,9 @@ function buildListeningUserPrompt(input: {
     `Transcript length: ${MIN_TRANSCRIPT_WORDS}-${MAX_TRANSCRIPT_WORDS} words`,
     "Transcript MUST be a real listening passage with concrete details (names, places, times, numbers, events).",
     "Do NOT output template/meta text like 'Today you will hear...' or step-by-step placeholders.",
-    "Each question MUST contain exactly 3 options (A, B, C).",
-    "correctAnswerIndex MUST be in range 0..2.",
+    "Each question MUST contain exactly 4 options (A, B, C, D).",
+    "correctAnswerIndex MUST be in range 0..3.",
+    "Correct-answer positions must be randomized across A/B/C/D, not fixed to A.",
     "Each explanationInVietnamese must cite why the correct option is correct from transcript content and briefly why other options are wrong.",
     "Return strict JSON only.",
   ];
@@ -615,9 +617,9 @@ function normalizeStoredListeningQuestion(raw: unknown, transcript: string): Lis
   const options = rawOptions
     .map((option) => String(option ?? "").trim())
     .filter((option) => option.length > 0)
-    .slice(0, 3);
+    .slice(0, 4);
 
-  if (options.length < 3) {
+  if (options.length < 4) {
     return null;
   }
 
@@ -701,9 +703,9 @@ function normalizeAiQuestion(raw: ListeningQuestionAiPayload | unknown, transcri
   }
 
   const rawOptions = readFirstArray(record, ["options", "Options", "choices", "Choices", "answers", "Answers"]);
-  const options = rawOptions.map((opt) => String(opt ?? "").trim()).filter((opt) => opt.length > 0).slice(0, 3);
+  const options = rawOptions.map((opt) => String(opt ?? "").trim()).filter((opt) => opt.length > 0).slice(0, 4);
 
-  if (options.length < 3) {
+  if (options.length < 4) {
     return null;
   }
 
@@ -786,7 +788,7 @@ async function generateListeningFromAi(input: {
     }
 
     if (normalizedQuestions.length !== totalQuestions) {
-      issues.push(`Need ${totalQuestions} valid questions with exactly 3 options each and correctAnswerIndex in 0..2`);
+      issues.push(`Need ${totalQuestions} valid questions with exactly 4 options each and correctAnswerIndex in 0..3`);
     }
 
     if (issues.length === 0) {
@@ -893,7 +895,9 @@ export async function gradeListeningExercise(input: {
       return null;
     }
 
-    const stored = await exerciseRepository.getExerciseById(parsedExerciseId, nguoiDungId);
+    const stored =
+      (await exerciseRepository.getExerciseById(parsedExerciseId, nguoiDungId))
+      ?? (await exerciseRepository.getExerciseByIdAnyUser(parsedExerciseId));
     if (!stored || stored.kieuBaiTap !== "listening") {
       return null;
     }
@@ -965,22 +969,12 @@ export async function gradeListeningExercise(input: {
     const completedAt = new Date();
     const incorrectAnswers = Math.max(0, feedback.length - correctAnswers);
 
-    // Persist attempt in background so grading response is not blocked by slow DB writes.
-    void (async () => {
-      try {
-        const effectiveNguoiDungId =
-          nguoiDungId ?? (await exerciseRepository.resolveNguoiDungIdByTaiKhoanId(input.requestedByTaiKhoanId));
+    try {
+      const effectiveNguoiDungId =
+        nguoiDungId ?? (await exerciseRepository.resolveNguoiDungIdByTaiKhoanId(input.requestedByTaiKhoanId));
 
-        if (!effectiveNguoiDungId) {
-          return;
-        }
-
-        const stored = await exerciseRepository.getExerciseById(parsedExerciseId, effectiveNguoiDungId);
-        if (!stored || stored.kieuBaiTap !== "listening") {
-          return;
-        }
-
-        await exerciseRepository.addCompletion({
+      if (effectiveNguoiDungId) {
+        const completion = await exerciseRepository.addCompletion({
           nguoiDungId: effectiveNguoiDungId,
           exerciseId: parsedExerciseId,
           answersJson: {
@@ -999,14 +993,20 @@ export async function gradeListeningExercise(input: {
           completedAt,
           details,
         });
-      } catch (error) {
-        logger.warn("Listening completion persistence failed", {
-          exerciseId: parsedExerciseId,
-          requestedByTaiKhoanId: input.requestedByTaiKhoanId,
-          error: error instanceof Error ? error.message : "unknown_error",
+
+        triggerLearningInsightsRefresh({
+          nguoiDungId: effectiveNguoiDungId,
+          attemptNumber: completion.attemptNumber,
+          source: "listening_grade",
         });
       }
-    })();
+    } catch (error) {
+      logger.warn("Listening completion persistence failed", {
+        exerciseId: parsedExerciseId,
+        requestedByTaiKhoanId: input.requestedByTaiKhoanId,
+        error: error instanceof Error ? error.message : "unknown_error",
+      });
+    }
   }
 
   return response;

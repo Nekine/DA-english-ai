@@ -195,6 +195,8 @@ CREATE TABLE dbo.DeThiAI (
 );
 GO
 
+select * from dbo.DeThiAI
+
 CREATE INDEX IX_DeThiAI_NguoiDungId ON dbo.DeThiAI(NguoiDungId);
 CREATE INDEX IX_DeThiAI_KieuDeThi ON dbo.DeThiAI(KieuDeThi);
 CREATE INDEX IX_DeThiAI_TrangThaiDeThi ON dbo.DeThiAI(TrangThaiDeThi);
@@ -276,6 +278,13 @@ CREATE INDEX IX_BaiLamBaiTapAI_BaiTapAIId ON dbo.BaiLamBaiTapAI(BaiTapAIId);
 CREATE INDEX IX_BaiLamBaiTapAI_DiemSo ON dbo.BaiLamBaiTapAI(DiemSo);
 CREATE INDEX IX_BaiLamBaiTapAI_NgayTao ON dbo.BaiLamBaiTapAI(NgayTao);
 GO
+
+select * from dbo.BaiLamDeThiAI
+select * from dbo.DeThiAI
+
+select * from dbo.BaiLamBaiTapAI
+select * from dbo.BaiTapAI
+select * from dbo.DiemYeuNguoiDung
 
 /* =========================================================
    7) ĐIỂM YẾU NGƯỜI DÙNG

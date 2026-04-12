@@ -14,7 +14,7 @@ import Listening from "./pages/Listening";
 import Speaking from "./pages/Speaking";
 import WritingMode from "./pages/WritingMode";
 import Leaderboard from "./pages/Leaderboard"
-import Progress from "./pages/Progress";
+import Progress from "./pages/Progress.tsx";
 import ReadingExercises from "./pages/ReadingExercises";
 import SentenceWriting from "./pages/SentenceWriting";
 import SentencePractice from "./pages/SentencePractice";
@@ -55,7 +55,7 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AnimatePresence mode="wait">
             <Routes>
               {/* Public routes */}

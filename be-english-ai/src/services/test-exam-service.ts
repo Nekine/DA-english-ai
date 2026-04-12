@@ -4,6 +4,7 @@ import { loadPromptTemplate } from "./ai/prompt-loader";
 import { appConfig } from "../config";
 import { exerciseRepository } from "../database/repositories/exercise-repository";
 import { testExamRepository, type TestExamDbRow } from "../database/repositories/test-exam-repository";
+import { triggerLearningInsightsRefresh } from "./learning-insights-service";
 import { logger } from "../utils/logger";
 
 export type ToeicPartStatus = "pending" | "ready" | "failed";
@@ -75,6 +76,23 @@ type CreateTestExamInput = {
   isRealExamMode?: boolean;
   isFullTest?: boolean;
   selectedParts?: number[];
+};
+
+type SubmitTestExamAnswerInput = {
+  questionId?: string;
+  partNumber?: number;
+  questionNumber?: number;
+  answer?: string;
+  selectedAnswer?: string;
+  selectedOption?: string;
+};
+
+type SubmitTestExamInput = {
+  requestedByTaiKhoanId: number;
+  testId: string;
+  answers: SubmitTestExamAnswerInput[];
+  completedAt?: string;
+  durationMinutes?: number;
 };
 
 type PartDefinition = {
@@ -432,19 +450,182 @@ function normalizeOptions(raw: readonly unknown[], optionCount = 4): TestExamOpt
 }
 
 function resolveCorrectAnswer(raw: unknown, options: TestExamOption[]): string {
+  const fallbackLabel = options[0]?.label ?? "A";
+
   const rawValue = String(raw ?? "").trim().toUpperCase();
   if (options.some((option) => option.label === rawValue)) {
     return rawValue;
+  }
+
+  const byWrappedLabel = rawValue.match(/(?:^|[^A-Z])([A-D])(?:[^A-Z]|$)/);
+  if (byWrappedLabel?.[1] && options.some((option) => option.label === byWrappedLabel[1])) {
+    return byWrappedLabel[1];
+  }
+
+  const normalizedRaw = normalizeAnswerText(String(raw ?? ""));
+  if (normalizedRaw) {
+    const byExactContent = options.find((option) => normalizeAnswerText(option.content) === normalizedRaw);
+    if (byExactContent) {
+      return byExactContent.label;
+    }
+
+    const byContainContent = options.find((option) => {
+      const optionText = normalizeAnswerText(option.content);
+      return optionText.length >= 4 && normalizedRaw.includes(optionText);
+    });
+    if (byContainContent) {
+      return byContainContent.label;
+    }
   }
 
   const rawIndex = Number(raw);
   if (Number.isInteger(rawIndex)) {
     const normalized = rawIndex >= 1 && rawIndex <= options.length ? rawIndex - 1 : rawIndex;
     const safeIndex = Math.max(0, Math.min(options.length - 1, normalized));
-    return options[safeIndex]?.label || "A";
+    return options[safeIndex]?.label || fallbackLabel;
   }
 
-  return "A";
+  return fallbackLabel;
+}
+
+function normalizeAnswerText(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizeExplanationAnswerLabel(explanation: string, correctLabel: string): string {
+  const trimmed = explanation.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  return trimmed
+    .replace(/(đáp\s*án\s*đúng\s*(?:là|:)\s*)[A-D]/i, `$1${correctLabel}`)
+    .replace(/(correct\s*answer\s*(?:is|:)\s*)[A-D]/i, `$1${correctLabel}`);
+}
+
+function moveCorrectOptionToIndex(question: TestExamQuestion, targetIndex: number): TestExamQuestion {
+  if (!Array.isArray(question.options) || question.options.length === 0) {
+    return question;
+  }
+
+  const normalizedOptions = question.options.map((option, index) => ({
+    label: optionLabelAt(index),
+    value: optionLabelAt(index),
+    content: String(option.content ?? "").trim(),
+  }));
+
+  const boundedTarget = Math.max(0, Math.min(normalizedOptions.length - 1, targetIndex));
+  const currentLabel = resolveCorrectAnswer(question.correctAnswer, normalizedOptions);
+  const currentIndex = normalizedOptions.findIndex((option) => option.label === currentLabel);
+
+  if (currentIndex < 0) {
+    const fallbackLabel = optionLabelAt(boundedTarget);
+    return {
+      ...question,
+      options: normalizedOptions,
+      correctAnswer: fallbackLabel,
+      explanation: normalizeExplanationAnswerLabel(question.explanation, fallbackLabel),
+    };
+  }
+
+  if (currentIndex === boundedTarget) {
+    const label = optionLabelAt(currentIndex);
+    return {
+      ...question,
+      options: normalizedOptions,
+      correctAnswer: label,
+      explanation: normalizeExplanationAnswerLabel(question.explanation, label),
+    };
+  }
+
+  const reordered = [...normalizedOptions];
+  const temp = reordered[currentIndex]!;
+  reordered[currentIndex] = reordered[boundedTarget]!;
+  reordered[boundedTarget] = temp;
+
+  const relabeled = reordered.map((option, index) => ({
+    ...option,
+    label: optionLabelAt(index),
+    value: optionLabelAt(index),
+  }));
+  const label = optionLabelAt(boundedTarget);
+
+  return {
+    ...question,
+    options: relabeled,
+    correctAnswer: label,
+    explanation: normalizeExplanationAnswerLabel(question.explanation, label),
+  };
+}
+
+function enforceMixedCorrectAnswerLabels(
+  questions: TestExamQuestion[],
+  definition: PartDefinition,
+): TestExamQuestion[] {
+  if (questions.length <= 1) {
+    return questions;
+  }
+
+  const optionCount = expectedOptionCount(definition);
+  if (optionCount <= 1) {
+    return questions;
+  }
+
+  const currentLabels = questions.map((question) => question.correctAnswer.trim().toUpperCase());
+  const uniqueLabels = new Set(currentLabels.filter((label) => /^[A-D]$/.test(label))).size;
+
+  if (uniqueLabels >= Math.min(optionCount, 2)) {
+    return questions.map((question) => {
+      const currentIndex = Math.max(
+        0,
+        question.options.findIndex((option) => option.label === question.correctAnswer.trim().toUpperCase()),
+      );
+      return moveCorrectOptionToIndex(question, currentIndex);
+    });
+  }
+
+  const offset = definition.partNumber % optionCount;
+  return questions.map((question, index) => moveCorrectOptionToIndex(question, (index + offset) % optionCount));
+}
+
+function resolveSelectedAnswerLabel(raw: string, options: TestExamOption[]): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const upper = trimmed.toUpperCase();
+  if (options.some((option) => option.label === upper)) {
+    return upper;
+  }
+
+  const compact = upper.replace(/[\s\.\):\-]/g, "");
+  if (compact.length === 1 && options.some((option) => option.label === compact)) {
+    return compact;
+  }
+
+  const byContent = options.find((option) => normalizeAnswerText(option.content) === normalizeAnswerText(trimmed));
+  return byContent?.label ?? null;
+}
+
+function inferAiLevelByScore(score: number): string {
+  if (score >= 90) {
+    return "C1";
+  }
+
+  if (score >= 80) {
+    return "B2";
+  }
+
+  if (score >= 65) {
+    return "B1";
+  }
+
+  if (score >= 50) {
+    return "A2";
+  }
+
+  return "A1";
 }
 
 function normalizePromptByPart(definition: PartDefinition, rawPrompt: string): string {
@@ -639,9 +820,10 @@ function fallbackQuestion(definition: PartDefinition, topic: string, questionNum
 }
 
 function fallbackPart(definition: PartDefinition, topic: string): TestExamPart {
-  const questions = Array.from({ length: definition.questionCount }, (_, index) =>
+  const rawQuestions = Array.from({ length: definition.questionCount }, (_, index) =>
     fallbackQuestion(definition, topic, index + 1),
   );
+  const questions = enforceMixedCorrectAnswerLabels(rawQuestions, definition);
 
   const partAudioText = definition.isListening
     ? `You are now listening to ${definition.partTitle}. Topic is ${topic}.`
@@ -776,7 +958,7 @@ function normalizeAiPart(rawPayload: unknown, definition: PartDefinition, topic:
         prompt,
         options,
         correctAnswer,
-        explanation,
+        explanation: normalizeExplanationAnswerLabel(explanation, correctAnswer),
         ...(definition.isListening && effectiveQuestionAudioText
           ? {
               audioText: effectiveQuestionAudioText,
@@ -798,6 +980,8 @@ function normalizeAiPart(rawPayload: unknown, definition: PartDefinition, topic:
   while (questions.length < definition.questionCount) {
     questions.push(fallbackQuestion(definition, topic, questions.length + 1));
   }
+
+  const mixedQuestions = enforceMixedCorrectAnswerLabels(questions, definition);
 
   const effectivePartAudioText = partAudioText || `You are listening to ${partTitle}. Topic is ${topic}.`;
   const partAudioSegments = definition.isListening
@@ -821,7 +1005,7 @@ function normalizeAiPart(rawPayload: unknown, definition: PartDefinition, topic:
             : {}),
         }
       : {}),
-    questions,
+    questions: mixedQuestions,
   };
 }
 
@@ -1290,6 +1474,238 @@ export async function getTestExamById(input: {
   }
 
   return hydrateDetailFromRow(row);
+}
+
+export async function submitTestExamResult(input: SubmitTestExamInput): Promise<{
+  success: boolean;
+  message: string;
+  score?: number;
+  totalQuestions?: number;
+  correctAnswers?: number;
+  incorrectAnswers?: number;
+  levelEstimate?: string;
+  partSummaries?: Array<{
+    partNumber: number;
+    partTitle: string;
+    totalQuestions: number;
+    correctAnswers: number;
+    incorrectAnswers: number;
+    score: number;
+  }>;
+}> {
+  const testId = input.testId.trim();
+  if (!testId) {
+    return { success: false, message: "Test ID is required" };
+  }
+
+  const detail = await getTestExamById({
+    requestedByTaiKhoanId: input.requestedByTaiKhoanId,
+    testId,
+  });
+
+  if (!detail) {
+    return { success: false, message: "Exam not found" };
+  }
+
+  const readyParts = detail.parts.filter((part) => part.status === "ready");
+  const flattenedQuestions = readyParts.flatMap((part) =>
+    part.questions.map((question) => ({
+      partNumber: part.partNumber,
+      partTitle: part.partTitle,
+      question,
+    })),
+  );
+
+  if (flattenedQuestions.length === 0) {
+    return { success: false, message: "Exam has no ready questions to submit" };
+  }
+
+  const answers = Array.isArray(input.answers) ? input.answers : [];
+  const byQuestionId = new Map<string, string>();
+  const byPartAndNumber = new Map<string, string>();
+  const orderedAnswers: string[] = [];
+
+  for (const answer of answers) {
+    const raw = String(answer.selectedAnswer ?? answer.selectedOption ?? answer.answer ?? "").trim();
+    if (!raw) {
+      continue;
+    }
+
+    const questionId = typeof answer.questionId === "string" ? answer.questionId.trim() : "";
+    if (questionId) {
+      byQuestionId.set(questionId, raw);
+    }
+
+    const partNumber = Number(answer.partNumber);
+    const questionNumber = Number(answer.questionNumber);
+    if (Number.isInteger(partNumber) && partNumber > 0 && Number.isInteger(questionNumber) && questionNumber > 0) {
+      byPartAndNumber.set(`${partNumber}:${questionNumber}`, raw);
+    }
+
+    orderedAnswers.push(raw);
+  }
+
+  const scorePerQuestion = flattenedQuestions.length > 0
+    ? Math.round((10000 / flattenedQuestions.length)) / 100
+    : 0;
+
+  const questionResults = flattenedQuestions.map((item, index) => {
+    const fallbackAnswer = orderedAnswers[index] ?? "";
+    const selectedRaw =
+      byQuestionId.get(item.question.questionId)
+      ?? byPartAndNumber.get(`${item.partNumber}:${item.question.questionNumber}`)
+      ?? fallbackAnswer;
+
+    const selectedLabel = resolveSelectedAnswerLabel(selectedRaw, item.question.options);
+    const correctLabel = item.question.correctAnswer.trim().toUpperCase();
+    const selectedContent =
+      selectedLabel
+        ? item.question.options.find((option) => option.label === selectedLabel)?.content ?? selectedRaw
+        : selectedRaw || null;
+    const correctContent =
+      item.question.options.find((option) => option.label === correctLabel)?.content
+      ?? correctLabel;
+    const isCorrect = selectedLabel === correctLabel;
+
+    return {
+      partNumber: item.partNumber,
+      partTitle: item.partTitle,
+      questionId: item.question.questionId,
+      questionNumber: item.question.questionNumber,
+      selectedAnswerLabel: selectedLabel,
+      selectedAnswerContent: selectedContent,
+      correctAnswerLabel: correctLabel,
+      correctAnswerContent: correctContent,
+      isCorrect,
+      score: isCorrect ? scorePerQuestion : 0,
+      explanation: item.question.explanation,
+    };
+  });
+
+  const totalQuestions = questionResults.length;
+  const correctAnswers = questionResults.reduce((sum, item) => sum + (item.isCorrect ? 1 : 0), 0);
+  const incorrectAnswers = Math.max(0, totalQuestions - correctAnswers);
+  const score = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 10000) / 100 : 0;
+
+  const partSummaryMap = new Map<number, {
+    partNumber: number;
+    partTitle: string;
+    totalQuestions: number;
+    correctAnswers: number;
+  }>();
+
+  for (const item of questionResults) {
+    const existing = partSummaryMap.get(item.partNumber);
+    if (existing) {
+      existing.totalQuestions += 1;
+      if (item.isCorrect) {
+        existing.correctAnswers += 1;
+      }
+      continue;
+    }
+
+    partSummaryMap.set(item.partNumber, {
+      partNumber: item.partNumber,
+      partTitle: item.partTitle,
+      totalQuestions: 1,
+      correctAnswers: item.isCorrect ? 1 : 0,
+    });
+  }
+
+  const partSummaries = [...partSummaryMap.values()]
+    .sort((a, b) => a.partNumber - b.partNumber)
+    .map((item) => {
+      const incorrect = Math.max(0, item.totalQuestions - item.correctAnswers);
+      const partScore = item.totalQuestions > 0
+        ? Math.round((item.correctAnswers / item.totalQuestions) * 10000) / 100
+        : 0;
+
+      return {
+        partNumber: item.partNumber,
+        partTitle: item.partTitle,
+        totalQuestions: item.totalQuestions,
+        correctAnswers: item.correctAnswers,
+        incorrectAnswers: incorrect,
+        score: partScore,
+      };
+    });
+
+  const completedAt = input.completedAt ? new Date(input.completedAt) : new Date();
+  const validCompletedAt = Number.isNaN(completedAt.getTime()) ? new Date() : completedAt;
+  const levelEstimate = inferAiLevelByScore(score);
+  const weakestPart = [...partSummaries].sort((a, b) => a.score - b.score)[0];
+  const aiComment =
+    score >= 85
+      ? "Kết quả tốt, hãy duy trì cường độ luyện tập và tăng dần độ khó ở các part đọc hiểu."
+      : weakestPart
+        ? `Cần ưu tiên cải thiện ${weakestPart.partTitle} vì đây là phần có điểm thấp nhất hiện tại.`
+        : "Cần tiếp tục luyện tập để cải thiện độ chính xác tổng thể.";
+
+  let completionPersisted = true;
+
+  if (appConfig.db.enabled) {
+    const deThiAIId = Number(testId);
+    if (!Number.isInteger(deThiAIId) || deThiAIId <= 0) {
+      return { success: false, message: "Invalid test id" };
+    }
+
+    const nguoiDungId = await resolveNguoiDungId(input.requestedByTaiKhoanId);
+    if (!nguoiDungId) {
+      return { success: false, message: "User not found" };
+    }
+
+    const completion = await testExamRepository.addCompletion({
+      deThiAIId,
+      nguoiDungId,
+      cauTraLoiJson: JSON.stringify({
+        submittedAt: validCompletedAt.toISOString(),
+        answers,
+      }),
+      ketQuaChamJson: JSON.stringify({
+        totalQuestions,
+        correctAnswers,
+        incorrectAnswers,
+        score,
+        submittedAt: validCompletedAt.toISOString(),
+        partSummaries,
+        questions: questionResults,
+      }),
+      diemSo: score,
+      tongSoCau: totalQuestions,
+      soCauDung: correctAnswers,
+      soCauSai: incorrectAnswers,
+      trinhDoNhanDinhAI: levelEstimate,
+      ...(Number.isFinite(input.durationMinutes) && Number(input.durationMinutes) > 0
+        ? { thoiGianLamPhut: Math.max(1, Math.trunc(Number(input.durationMinutes))) }
+        : {}),
+      nhanXetAI: aiComment,
+      trangThaiBaiLam: "graded",
+    });
+    completionPersisted = completion.persisted;
+
+    if (completion.persisted) {
+      triggerLearningInsightsRefresh({
+        nguoiDungId,
+        attemptNumber: completion.attemptNumber,
+        source: "test_exam_submit",
+      });
+    }
+  }
+
+  return {
+    success: true,
+    message: appConfig.db.enabled
+      ? (completionPersisted
+        ? "Exam submitted successfully"
+        : "Exam submitted successfully (first attempt already saved; this retry is not stored)")
+      : "Exam submitted successfully (no-db mode)",
+    score,
+    totalQuestions,
+    correctAnswers,
+    incorrectAnswers,
+    levelEstimate,
+    partSummaries,
+  };
 }
 
 export async function createTestExam(input: CreateTestExamInput & { requestedByTaiKhoanId: number }): Promise<TestExamSummary> {

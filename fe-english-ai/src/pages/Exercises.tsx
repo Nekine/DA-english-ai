@@ -247,6 +247,7 @@ const Exercises: React.FC = () => {
   const [topic, setTopic] = useState('');
   const [totalQuestions, setTotalQuestions] = useState(10);
   const [isLoading, setIsLoading] = useState(false);
+  const [isCreatingExercise, setIsCreatingExercise] = useState(false);
   const [exerciseSet, setExerciseSet] = useState<ExerciseSet | null>(null);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [savedExerciseId, setSavedExerciseId] = useState<number | null>(null);
@@ -311,6 +312,8 @@ const Exercises: React.FC = () => {
     setSelectedAnswer(null);
     setAnswers({});
     setSavedExerciseId(null);
+    setIsLoading(false);
+    setIsCreatingExercise(false);
   };
 
   const loadCreatedExercises = async () => {
@@ -379,6 +382,31 @@ const Exercises: React.FC = () => {
     }
   };
 
+  const buildGrammarSaveRequest = (set: ExerciseSet) => ({
+    title: `${set.Topic} - AI Generated`,
+    topic: set.Topic,
+    questions: set.Questions,
+    level: 'A1',
+    type: selectedQuestionTypes.length > 1 ? 'mixed' : 'single',
+    category: set.Topic,
+    estimatedMinutes: Math.ceil(set.Questions.length * 1.5),
+    timeLimit: Number(set.TimeLimit) > 0 ? Number(set.TimeLimit) : 600,
+    description: `AI-generated exercise with ${set.Questions.length} questions`,
+    createdBy: user?.userId || 1,
+  });
+
+  const persistGrammarExercise = async (set: ExerciseSet): Promise<number | null> => {
+    const saveRequest = buildGrammarSaveRequest(set);
+
+    const saveResult = await exerciseService.saveExercise(saveRequest);
+    if (!saveResult.success || !saveResult.exerciseId) {
+      return null;
+    }
+
+    console.log('✅ Exercise saved with ID:', saveResult.exerciseId);
+    return saveResult.exerciseId;
+  };
+
   const handleCreateExercise = async () => {
     if (!topic.trim()) {
       toast({
@@ -390,7 +418,7 @@ const Exercises: React.FC = () => {
     }
 
     try {
-      setIsLoading(true);
+      setIsCreatingExercise(true);
 
       const params: ExerciseGenerationParams = {
         Topic: topic.trim(),
@@ -416,30 +444,17 @@ const Exercises: React.FC = () => {
         
         // Tự động lưu bài tập vào database
         try {
-          const saveRequest = {
-            title: `${result.Topic} - AI Generated`,
-            topic: result.Topic,
-            questions: result.Questions,
-            level: 'A1', // Có thể thay đổi theo level thực tế
-            type: selectedQuestionTypes.length > 1 ? 'mixed' : 'single',
-            category: result.Topic,
-            estimatedMinutes: Math.ceil(result.Questions.length * 1.5),
-            timeLimit: 600,
-            description: `AI-generated exercise with ${result.Questions.length} questions`,
-            createdBy: user?.userId || 1 // Sử dụng user ID hiện tại
-          };
-          
-          console.log('💾 Saving exercise to database...');
-          console.log('📊 Save request:', JSON.stringify(saveRequest, null, 2));
-          const saveResult = await exerciseService.saveExercise(saveRequest);
-          
-          if (saveResult.success) {
-            console.log('✅ Exercise saved with ID:', saveResult.exerciseId);
-            setSavedExerciseId(saveResult.exerciseId ?? null);
+          const persistedExerciseId = await persistGrammarExercise(result);
+          if (persistedExerciseId) {
+            setSavedExerciseId(persistedExerciseId);
           }
         } catch (saveError) {
           console.error('⚠️ Failed to save exercise:', saveError);
-          // Không show error toast vì vẫn có thể làm bài
+          toast({
+            title: 'Chưa lưu được bài vào CSDL',
+            description: 'Bạn vẫn có thể làm bài. Hệ thống sẽ thử lưu lại khi bạn nộp bài.',
+            variant: 'destructive'
+          });
         }
         
         toast({
@@ -462,7 +477,7 @@ const Exercises: React.FC = () => {
         variant: 'destructive'
       });
     } finally {
-      setIsLoading(false);
+      setIsCreatingExercise(false);
     }
   };
 
@@ -483,26 +498,40 @@ const Exercises: React.FC = () => {
 
       setSubmissionResult(result);
 
-      if (savedExerciseId && exerciseSet?.Questions?.length) {
+      let effectiveExerciseId = savedExerciseId;
+      let persistedToDatabase = false;
+
+      if (!effectiveExerciseId && exerciseSet?.Questions?.length) {
+        try {
+          effectiveExerciseId = await persistGrammarExercise(exerciseSet);
+          if (effectiveExerciseId) {
+            setSavedExerciseId(effectiveExerciseId);
+          }
+        } catch (saveError) {
+          console.error('⚠️ Failed to save exercise before submission:', saveError);
+        }
+      }
+
+      if (effectiveExerciseId && exerciseSet?.Questions?.length) {
         try {
           const orderedAnswers = exerciseSet.Questions.map((_, index) => answers[index + 1] ?? "");
           await exerciseService.submitExerciseResult({
-            exerciseId: savedExerciseId,
+            exerciseId: effectiveExerciseId,
             answers: orderedAnswers,
             completedAt: new Date().toISOString(),
           });
+          persistedToDatabase = true;
         } catch (persistError) {
           console.error('⚠️ Failed to persist grammar attempt:', persistError);
+          
         }
+      } else {
+        
       }
 
       setIsLoading(false);
       setShowExercise(false);
-      toast({
-        title: 'Đã nộp bài',
-        description: 'Bài tập đã được nộp thành công',
-        variant: 'default'
-      });
+      
     } catch (err) {
       console.error('Error submitting exercise:', err);
       toast({
@@ -731,9 +760,9 @@ const Exercises: React.FC = () => {
               <Button
                 className="w-full py-6 text-lg font-semibold"
                 onClick={handleCreateExercise}
-                disabled={isLoading}
+                disabled={isCreatingExercise}
               >
-                {isLoading ? 'Đang tạo bài tập...' : 'Tạo bài tập'}
+                {isCreatingExercise ? 'Đang tạo bài tập...' : 'Tạo bài tập'}
               </Button>
 
               <div className="pt-2">

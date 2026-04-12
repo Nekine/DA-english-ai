@@ -105,28 +105,22 @@ const SentenceWriting = () => {
       };
       
       toast.success("Đã tạo bài luyện viết thành công!");
-      let savedExerciseId: number | null = null;
-      
-      // Tự động lưu bài sentence writing vào database
-      try {
-        const saveRequest = {
-          title: `${finalTopic} - Sentence Writing`,
-          topic: finalTopic,
-          sentences: normalizedData.sentences,
-          level: formData.level,
-          category: finalTopic,
-          estimatedMinutes: Math.ceil(normalizedData.sentences.length * 3),
-          timeLimit: 900,
-          description: `AI-generated sentence writing with ${normalizedData.sentences.length} sentences`,
-          createdBy: user?.userId || 1
-        };
+      const saveRequest = {
+        title: `${finalTopic} - Sentence Writing`,
+        topic: finalTopic,
+        sentences: normalizedData.sentences,
+        level: formData.level,
+        category: finalTopic,
+        estimatedMinutes: Math.ceil(normalizedData.sentences.length * 3),
+        timeLimit: 900,
+        description: `AI-generated sentence writing with ${normalizedData.sentences.length} sentences`,
+        createdBy: user?.userId || 1
+      };
 
-        const saveResponse = await sentenceWritingApi.saveSentenceWriting(saveRequest);
-        savedExerciseId = saveResponse.exerciseId ?? null;
-        
-      } catch (saveError) {
-        console.error('⚠️ Failed to save sentence writing:', saveError);
-        // Không show error toast vì vẫn có thể làm bài
+      const saveResponse = await sentenceWritingApi.saveSentenceWriting(saveRequest);
+      const savedExerciseId = saveResponse.exerciseId ?? null;
+      if (!savedExerciseId) {
+        throw new Error('Không lưu được bài luyện vào CSDL. Vui lòng đăng nhập lại và thử lại.');
       }
       
       // Navigate to practice page with generated data

@@ -27,11 +27,15 @@ These sentences are for active English learning, not passive memorization.
 - CorrectAnswer is REQUIRED for every item.
 - Must be natural, grammatically correct English.
 - Avoid literal word-by-word translation.
+- CorrectAnswer MUST be English only, never Vietnamese.
 
 ### 4. Suggestion quality
 - Provide vocabulary hints that directly help translation.
 - Provide one reusable structure hint per sentence.
 - Vocabulary hints should be high-frequency and useful.
+- Suggestion.Structure MUST be written in English grammar pattern form (e.g., "S + V + O").
+- Suggestion.Vocabulary.Word MUST be English words only.
+- Suggestion.Vocabulary.Meaning MUST be Vietnamese meaning with proper diacritics.
 
 ### 5. TOEIC-friendly preference (when suitable)
 - workplace communication
@@ -66,6 +70,7 @@ These sentences are for active English learning, not passive memorization.
 - Suggestion.Structure must not be empty.
 - Each sentence must include at least 2 vocabulary hints.
 - Stay strictly within English-learning scope.
+- Never output Vietnamese text in CorrectAnswer.
 
 ## STRUCTURE HINT EXAMPLES
 - "S + should + V..."

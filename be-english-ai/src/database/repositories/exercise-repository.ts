@@ -104,12 +104,17 @@ export class ExerciseRepository extends BaseRepository {
     this.bindInput(accountRequest, "taiKhoanId", sql.Int, taiKhoanId);
     const account = await accountRequest.query<{
       TaiKhoanId: number;
-      Email: string | null;
-      HoTen: string | null;
-      TrinhDoMucTieu: string | null;
+      TenDangNhap: string | null;
+      HoVaTen: string | null;
+      TrinhDoHienTai: string | null;
     }>(`
-      SELECT TOP 1 tk.TaiKhoanId, tk.Email, tk.HoTen, tk.TrinhDoMucTieu
+      SELECT TOP 1
+        tk.TaiKhoanId,
+        tk.TenDangNhap,
+        nd.HoVaTen,
+        nd.TrinhDoHienTai
       FROM dbo.TaiKhoan tk
+      LEFT JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
       WHERE tk.TaiKhoanId = @taiKhoanId
     `);
 
@@ -122,49 +127,52 @@ export class ExerciseRepository extends BaseRepository {
       return null;
     }
 
-    const emailRaw = String(accountRow.Email ?? `user${taiKhoanId}@local.dev`).trim().toLowerCase();
-    const username = emailRaw.includes("@")
-      ? (emailRaw.split("@")[0] ?? `user${taiKhoanId}`)
-      : `user${taiKhoanId}`;
-    const fullName = String(accountRow.HoTen ?? "User").trim();
-    const level = String(accountRow.TrinhDoMucTieu ?? "A1").trim().toUpperCase();
+    const username = String(accountRow.TenDangNhap ?? `user${taiKhoanId}`).trim() || `user${taiKhoanId}`;
+    const fullName = String(accountRow.HoVaTen ?? username).trim();
+    const level = String(accountRow.TrinhDoHienTai ?? "A1").trim().toUpperCase();
 
     const createRequest = await this.createRequest();
     this.bindInput(createRequest, "taiKhoanId", sql.Int, taiKhoanId);
-    this.bindInput(createRequest, "tenDangNhap", sql.NVarChar(100), username.slice(0, 100));
-    this.bindInput(createRequest, "email", sql.NVarChar(255), emailRaw.slice(0, 255));
-    this.bindInput(createRequest, "hoTen", sql.NVarChar(255), fullName.slice(0, 255));
+    this.bindInput(createRequest, "hoVaTen", sql.NVarChar(100), fullName.slice(0, 100));
     this.bindInput(createRequest, "trinhDo", sql.NVarChar(10), level.slice(0, 10));
 
-    const created = await createRequest.query<{ NguoiDungId: number }>(`
-      INSERT INTO dbo.NguoiDung (
-        TaiKhoanId,
-        TenDangNhap,
-        Email,
-        HoTen,
-        TrinhDoHienTai,
-        TrinhDoMucTieu,
-        VaiTro,
-        TrangThai,
-        NgayTao,
-        NgayCapNhat
-      )
-      OUTPUT INSERTED.NguoiDungId
-      VALUES (
-        @taiKhoanId,
-        @tenDangNhap,
-        @email,
-        @hoTen,
-        @trinhDo,
-        @trinhDo,
-        N'user',
-        N'active',
-        SYSDATETIME(),
-        SYSDATETIME()
-      )
-    `);
+    try {
+      const created = await createRequest.query<{ NguoiDungId: number }>(`
+        INSERT INTO dbo.NguoiDung (
+          TaiKhoanId,
+          HoVaTen,
+          TrinhDoHienTai,
+          NgayCapNhatTrinhDo,
+          NgayCapNhat
+        )
+        OUTPUT INSERTED.NguoiDungId
+        VALUES (
+          @taiKhoanId,
+          @hoVaTen,
+          @trinhDo,
+          SYSDATETIME(),
+          SYSDATETIME()
+        )
+      `);
 
-    return created.recordset[0]?.NguoiDungId ?? null;
+      return created.recordset[0]?.NguoiDungId ?? null;
+    } catch (error) {
+      // Another request may have created the row concurrently.
+      const retryRequest = await this.createRequest();
+      this.bindInput(retryRequest, "taiKhoanId", sql.Int, taiKhoanId);
+      const retried = await retryRequest.query<{ NguoiDungId: number }>(`
+        SELECT TOP 1 nd.NguoiDungId
+        FROM dbo.NguoiDung nd
+        WHERE nd.TaiKhoanId = @taiKhoanId
+      `);
+
+      const retriedRow = retried.recordset[0];
+      if (retriedRow) {
+        return Number(retriedRow.NguoiDungId);
+      }
+
+      throw error;
+    }
   }
 
   async save(input: ExerciseSaveInput): Promise<number> {
@@ -369,6 +377,24 @@ export class ExerciseRepository extends BaseRepository {
     return result.recordset[0] ?? null;
   }
 
+  async getExerciseByIdAnyUser(exerciseId: number): Promise<ExerciseCoreRow | null> {
+    const request = await this.createRequest();
+    this.bindInput(request, "exerciseId", sql.Int, exerciseId);
+
+    const result = await request.query<ExerciseCoreRow>(`
+      SELECT TOP (1)
+        bt.BaiTapAIId AS exerciseId,
+        bt.NguoiDungId AS nguoiDungId,
+        bt.KieuBaiTap AS kieuBaiTap,
+        bt.NoiDungJson AS noiDungJson
+      FROM dbo.BaiTapAI bt
+      WHERE bt.BaiTapAIId = @exerciseId
+        AND bt.TrangThaiBaiTap = N'active'
+    `);
+
+    return result.recordset[0] ?? null;
+  }
+
   async listCreatedExercises(input: {
     nguoiDungId: number;
     kind: "grammar" | "writing" | "listening" | "reading";
@@ -408,14 +434,16 @@ export class ExerciseRepository extends BaseRepository {
     correctAnswers: number;
     completedAt: Date;
     details: ExerciseCompletionDetailInput[];
-  }): Promise<number> {
+  }): Promise<{ completionId: number; attemptNumber: number }> {
     const pool = await getDbPool();
-    const transaction = new sql.Transaction(pool);
+    const transaction = pool.transaction();
+    let transactionStarted = false;
 
     try {
       await transaction.begin();
+      transactionStarted = true;
 
-      const attemptRequest = new sql.Request(transaction);
+      const attemptRequest = transaction.request();
       this.bindInput(attemptRequest, "nguoiDungId", sql.Int, input.nguoiDungId);
       this.bindInput(attemptRequest, "exerciseId", sql.Int, input.exerciseId);
 
@@ -429,7 +457,7 @@ export class ExerciseRepository extends BaseRepository {
       const nextAttempt = attemptResult.recordset[0]?.nextAttempt ?? 1;
       const incorrectAnswers = Math.max(0, input.totalQuestions - input.correctAnswers);
 
-      const headerRequest = new sql.Request(transaction);
+      const headerRequest = transaction.request();
       this.bindInput(headerRequest, "exerciseId", sql.Int, input.exerciseId);
       this.bindInput(headerRequest, "nguoiDungId", sql.Int, input.nguoiDungId);
       this.bindInput(headerRequest, "lanThu", sql.Int, nextAttempt);
@@ -485,48 +513,21 @@ export class ExerciseRepository extends BaseRepository {
 
       const baiLamId = headerResult.recordset[0]?.id ?? 0;
 
-      for (const detail of input.details) {
-        const detailRequest = new sql.Request(transaction);
-        this.bindInput(detailRequest, "baiLamId", sql.Int, baiLamId);
-        this.bindInput(detailRequest, "questionOrder", sql.Int, detail.questionOrder);
-        this.bindInput(detailRequest, "questionType", sql.NVarChar(50), detail.questionType);
-        this.bindInput(detailRequest, "userAnswer", sql.NVarChar(sql.MAX), detail.userAnswer);
-        this.bindInput(detailRequest, "correctAnswer", sql.NVarChar(sql.MAX), detail.correctAnswer);
-        this.bindInput(detailRequest, "isCorrect", sql.Bit, detail.isCorrect);
-        this.bindInput(detailRequest, "score", sql.Decimal(5, 2), detail.scorePerQuestion);
-        this.bindInput(detailRequest, "ghiChuAI", sql.NVarChar(sql.MAX), detail.note ?? "");
-
-        await detailRequest.query(`
-          INSERT INTO dbo.ChiTietChamBaiBaiTapAI (
-            BaiLamBaiTapAIId,
-            SoThuTuCauHoi,
-            KieuCauHoi,
-            CauTraLoiNguoiDung,
-            DapAnDung,
-            DungSai,
-            Diem,
-            GhiChuAI
-          )
-          VALUES (
-            @baiLamId,
-            @questionOrder,
-            @questionType,
-            @userAnswer,
-            @correctAnswer,
-            @isCorrect,
-            @score,
-            @ghiChuAI
-          )
-        `);
-      }
+      // v4 schema has no per-question detail table, so persistence is stored in BaiLamBaiTapAI JSON columns.
 
       await transaction.commit();
-      return baiLamId;
+      transactionStarted = false;
+      return {
+        completionId: baiLamId,
+        attemptNumber: nextAttempt,
+      };
     } catch (error) {
-      try {
-        await transaction.rollback();
-      } catch {
-        // Ignore rollback errors when transaction is already finalized.
+      if (transactionStarted) {
+        try {
+          await transaction.rollback();
+        } catch {
+          // Ignore rollback errors when transaction is already finalized.
+        }
       }
       throw error;
     }
