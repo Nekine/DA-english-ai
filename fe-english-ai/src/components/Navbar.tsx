@@ -104,7 +104,7 @@ const Navbar = () => {
 
   const handleLogout = async () => {
     await auth0Logout();
-    navigate('/');
+    navigate('/login');
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {

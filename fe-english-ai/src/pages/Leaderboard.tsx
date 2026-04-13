@@ -16,24 +16,22 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { apiService } from "@/services/api";
 import { TOEIC_PARTS } from "@/constants/toeicParts";
 import { normalizeToeicParts } from "@/utils/toeicParts";
-import type { ToeicPartKey, ToeicPartScore } from "@/types/toeic";
+import type { ToeicPartScore } from "@/types/toeic";
 import { useQuery } from "@tanstack/react-query";
 import { Crown, Medal, Search, TrendingUp, Trophy, Users, ArrowLeft } from "lucide-react";
 import { useMemo, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 
-type LeaderboardFilter = "total" | ToeicPartKey;
 type LeaderboardUserWithParts = LeaderboardUser & { parts: ToeicPartScore[] };
 
 interface LeaderboardUser {
   rank: number;
   username: string;
   totalScore: number;
-  listening?: number;
-  speaking?: number;
-  reading?: number;
-  writing?: number;
+  attendanceStars: number;
+  exercises: number;
   exams: number;
+  totalAssignmentsAndExams: number;
   lastUpdate: string;
   parts?: ToeicPartScore[];
 }
@@ -41,100 +39,85 @@ interface LeaderboardUser {
 interface LeaderboardResponse {
   users: LeaderboardUser[];
   totalCount: number;
+  systemTotalUsers: number;
   timeFilter: string;
   category: string;
   lastUpdated: string;
 }
 
-interface UserRank {
-  userId: string;
-  username: string;
-  totalScore: number;
-  listening: number;
-  speaking: number;
-  reading: number;
-  writing: number;
-  rank: number;
-  percentile: number;
-  parts?: ToeicPartScore[];
+function normalizeLeaderboardResponse(
+  payload: unknown,
+  timeFilter: string,
+): LeaderboardResponse {
+  const list = Array.isArray(payload)
+    ? payload
+    : (payload && typeof payload === "object" && Array.isArray((payload as LeaderboardResponse).users))
+      ? (payload as LeaderboardResponse).users
+      : [];
+
+  const users: LeaderboardUser[] = list.map((item, index) => {
+    const record = (item ?? {}) as Record<string, unknown>;
+    const totalScore = Number(record.totalScore ?? record.totalXp ?? record.TotalXP ?? 0) || 0;
+
+    return {
+      rank: Number(record.rank ?? record.Rank ?? index + 1) || index + 1,
+      username: String(record.username ?? record.Username ?? `user_${index + 1}`),
+      totalScore,
+      attendanceStars: Number(record.attendanceStars ?? record.AttendanceStars ?? 0) || 0,
+      exercises: Number(record.exercises ?? record.ExercisesCompleted ?? 0) || 0,
+      exams: Number(record.exams ?? record.ExamsCompleted ?? 0) || 0,
+      totalAssignmentsAndExams:
+        Number(record.totalAssignmentsAndExams ?? record.TotalAssignmentsAndExams ?? 0)
+        || (
+          (Number(record.exercises ?? record.ExercisesCompleted ?? 0) || 0)
+          + (Number(record.exams ?? record.ExamsCompleted ?? 0) || 0)
+        ),
+      lastUpdate: String(record.lastUpdate ?? record.LastActiveAt ?? new Date().toISOString()),
+      ...(Array.isArray(record.parts) ? { parts: record.parts as ToeicPartScore[] } : {}),
+    };
+  });
+
+  const maybeObject = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
+
+  return {
+    users,
+    totalCount: Number(maybeObject?.totalCount ?? users.length) || users.length,
+    systemTotalUsers:
+      Number(maybeObject?.systemTotalUsers ?? maybeObject?.totalCount ?? users.length) || users.length,
+    timeFilter: String(maybeObject?.timeFilter ?? timeFilter),
+    category: String(maybeObject?.category ?? "totalxp"),
+    lastUpdated: String(maybeObject?.lastUpdated ?? new Date().toISOString()),
+  };
 }
 
 const CURRENT_USER = "englishlearner01";
 
-const PART_FILTER_OPTIONS: { value: LeaderboardFilter; label: string }[] = [
-  { value: "total", label: "Tổng điểm" },
-  ...TOEIC_PARTS.map((part) => ({
-    value: part.key,
-    label: part.label,
-  })),
-];
-
-const getFilterLabel = (filter: LeaderboardFilter) =>
-  PART_FILTER_OPTIONS.find((option) => option.value === filter)?.label ?? "Tổng điểm";
-
-const getFilterScore = (user: LeaderboardUser, filter: LeaderboardFilter) => {
-  if (filter === "total") {
-    return user.totalScore;
-  }
-  const part = user.parts?.find((item) => item.key === filter);
-  return part?.score ?? 0;
-};
-
 // Custom hook for direct API calls to LeaderboardController
-const useLeaderboardData = (
-  timeFilter: string = "all",
-  filter: LeaderboardFilter = "total"
-) => {
+const useLeaderboardData = (timeFilter: string = "all") => {
   return useQuery({
-    queryKey: ["leaderboard", timeFilter, filter],
+    queryKey: ["leaderboard", timeFilter],
     queryFn: async (): Promise<LeaderboardResponse> => {
       try {
         const params = new URLSearchParams({
           timeFilter,
-          skill: filter
+          includeMeta: "1",
         });
-        const response = await apiService.get<LeaderboardResponse>(`/api/Leaderboard?${params}`);
-        return response;
+        const response = await apiService.get<unknown>(`/api/Leaderboard?${params}`);
+        return normalizeLeaderboardResponse(response, timeFilter);
       } catch (error) {
         console.warn('Leaderboard API not available, using fallback data:', error);
         // Fallback data
         return {
           users: getTimeFilteredData(timeFilter),
           totalCount: 7,
+          systemTotalUsers: 7,
           timeFilter,
-          category: filter,
+          category: "totalxp",
           lastUpdated: new Date().toISOString()
         };
       }
     },
     staleTime: 2 * 60 * 1000, // 2 minutes
-  });
-};
-
-const useUserRank = (userId: number = 1) => {
-  return useQuery({
-    queryKey: ['userRank', userId],
-    queryFn: async (): Promise<UserRank> => {
-      try {
-        const response = await apiService.get<UserRank>(`/api/Leaderboard/user/${userId}/rank`);
-        return response;
-      } catch (error) {
-        console.warn('User rank API not available, using fallback data:', error);
-        // Fallback user rank data
-        return {
-          userId: userId.toString(),
-          username: 'englishlearner01',
-          totalScore: 850,
-          listening: 420,
-          speaking: 170,
-          reading: 170,
-          writing: 90,
-          rank: 4,
-          percentile: 94.5
-        };
-      }
-    },
-    staleTime: 5 * 60 * 1000, // 5 minutes
   });
 };
 
@@ -187,7 +170,10 @@ const getTimeFilteredData = (timeFilter: string): LeaderboardUser[] => {
       speaking: 195,
       reading: 190,
       writing: 85,
+      exercises: 72,
+      attendanceStars: 46,
       exams: 12,
+      totalAssignmentsAndExams: 84,
       lastUpdate: "2025-10-24T09:00:00Z",
       parts: createMockParts(480, 190),
     },
@@ -199,7 +185,10 @@ const getTimeFilteredData = (timeFilter: string): LeaderboardUser[] => {
       speaking: 185,
       reading: 185,
       writing: 85,
+      exercises: 66,
+      attendanceStars: 42,
       exams: 11,
+      totalAssignmentsAndExams: 77,
       lastUpdate: "2025-10-24T08:30:00Z",
       parts: createMockParts(470, 185),
     },
@@ -211,7 +200,10 @@ const getTimeFilteredData = (timeFilter: string): LeaderboardUser[] => {
       speaking: 180,
       reading: 175,
       writing: 85,
+      exercises: 60,
+      attendanceStars: 37,
       exams: 10,
+      totalAssignmentsAndExams: 70,
       lastUpdate: "2025-10-23T20:15:00Z",
       parts: createMockParts(450, 175),
     },
@@ -223,7 +215,10 @@ const getTimeFilteredData = (timeFilter: string): LeaderboardUser[] => {
       speaking: 170,
       reading: 170,
       writing: 90,
+      exercises: 54,
+      attendanceStars: 35,
       exams: 9,
+      totalAssignmentsAndExams: 63,
       lastUpdate: "2025-10-24T10:30:00Z",
       parts: createMockParts(420, 170),
     },
@@ -235,7 +230,10 @@ const getTimeFilteredData = (timeFilter: string): LeaderboardUser[] => {
       speaking: 165,
       reading: 155,
       writing: 85,
+      exercises: 48,
+      attendanceStars: 31,
       exams: 8,
+      totalAssignmentsAndExams: 56,
       lastUpdate: "2025-10-24T07:45:00Z",
       parts: createMockParts(410, 155),
     },
@@ -247,7 +245,10 @@ const getTimeFilteredData = (timeFilter: string): LeaderboardUser[] => {
       speaking: 160,
       reading: 150,
       writing: 75,
+      exercises: 42,
+      attendanceStars: 28,
       exams: 7,
+      totalAssignmentsAndExams: 49,
       lastUpdate: "2025-10-22T15:20:00Z",
       parts: createMockParts(395, 150),
     },
@@ -259,7 +260,10 @@ const getTimeFilteredData = (timeFilter: string): LeaderboardUser[] => {
       speaking: 155,
       reading: 145,
       writing: 70,
+      exercises: 36,
+      attendanceStars: 24,
       exams: 6,
+      totalAssignmentsAndExams: 42,
       lastUpdate: "2025-10-21T12:10:00Z",
       parts: createMockParts(380, 145),
     },
@@ -307,7 +311,6 @@ const getTimeFilteredData = (timeFilter: string): LeaderboardUser[] => {
 export default function Leaderboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [timeFilter, setTimeFilter] = useState<string>("all");
-  const [partFilter, setPartFilter] = useState<LeaderboardFilter>("total");
   
   // Scroll to top when component mounts
   useEffect(() => {
@@ -315,8 +318,7 @@ export default function Leaderboard() {
   }, []);
   
   // Sử dụng API trực tiếp thay vì admin hooks
-  const { data: leaderboardData, isLoading, error } = useLeaderboardData(timeFilter, partFilter);
-  const { data: userRank } = useUserRank(1); // Giả sử user ID 1
+  const { data: leaderboardData, isLoading, error } = useLeaderboardData(timeFilter);
   
   // Fallback về mock data nếu API không khả dụng
   const mockLeaderboard = getTimeFilteredData(timeFilter);
@@ -352,9 +354,26 @@ export default function Leaderboard() {
     return username.slice(0, 2).toUpperCase();
   };
 
-  // Sort all data by current filter first (this determines real ranking)
+  const formatUpdateTime = (value: string) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return value;
+    }
+
+    return parsed.toLocaleString("vi-VN", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+  };
+
+  // Sort data by total score to determine leaderboard order.
   const sortedByFilter = [...normalizedLeaderboard].sort((a, b) => {
-    return getFilterScore(b, partFilter) - getFilterScore(a, partFilter);
+    return b.totalScore - a.totalScore;
   });
 
   // Filter after sorting to maintain correct ranks
@@ -371,8 +390,8 @@ export default function Leaderboard() {
     ? sortedByFilter.findIndex((user) => user.username === currentUser.username) + 1
     : 0;
 
-  const currentScore = currentUser ? getFilterScore(currentUser, partFilter) : 0;
-  const currentFilterLabel = getFilterLabel(partFilter);
+  const currentScore = currentUser ? currentUser.totalScore : 0;
+  const totalSystemUsers = leaderboardData?.systemTotalUsers ?? leaderboardData?.totalCount ?? currentLeaderboard.length;
 
 const pageGradient =
   "min-h-screen bg-gradient-to-br from-pink-50 via-rose-50 to-fuchsia-50 dark:from-pink-950 dark:via-rose-950 dark:to-fuchsia-950 text-slate-900 dark:text-slate-100";
@@ -417,7 +436,7 @@ return (
           <div className="flex items-center justify-center gap-2">
             <Users className="h-4 w-4" />
             <AlertDescription className="text-pink-700 dark:text-pink-200">
-              🏆 Bảng xếp hạng với {currentLeaderboard.length} học viên. 
+              🏆 Bảng xếp hạng với {totalSystemUsers} học viên toàn hệ thống. 
               Dữ liệu được cập nhật lúc {new Date(leaderboardData.lastUpdated || new Date()).toLocaleString('vi-VN')}.
             </AlertDescription>
           </div>
@@ -460,11 +479,14 @@ return (
                   </AvatarFallback>
                 </Avatar>
                 <div>
-                  <h3 className="text-2xl font-bold">
-                    Bạn xếp hạng #{currentRank > 0 ? currentRank : "-"}
-                  </h3>
+                  <div className="flex items-center gap-3">
+                    <Badge className="bg-gradient-to-r from-yellow-500 via-orange-500 to-amber-500 text-white text-sm px-3 py-1 shadow-md shadow-amber-200/60">
+                      TOP {currentRank > 0 ? currentRank : "--"}
+                    </Badge>
+                    <h3 className="text-2xl font-bold">Thứ hạng của bạn</h3>
+                  </div>
                   <p className="text-muted-foreground">
-                    {currentFilterLabel} - Trong 1,000 học viên
+                    Tổng điểm - Trong {totalSystemUsers} học viên
                   </p>
                 </div>
               </div>
@@ -492,7 +514,7 @@ return (
               )}
             </CardTitle>
             <CardDescription>
-              Tùy chỉnh bảng xếp hạng theo nhu cầu
+              Lọc theo thời gian hoạt động
               {timeFilter !== "all" && (
                 <span className="text-primary font-medium ml-2">
                   • Đang hiển thị dữ liệu {timeFilter === "today" ? "hôm nay" : 
@@ -513,21 +535,6 @@ return (
                   className="pl-10"
                 />
               </div>
-              <Select
-                value={partFilter}
-                onValueChange={(value) => setPartFilter(value as LeaderboardFilter)}
-              >
-                <SelectTrigger className="w-full sm:w-[180px]">
-                  <SelectValue placeholder="Chọn Part" />
-                </SelectTrigger>
-                <SelectContent>
-                  {PART_FILTER_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
               <Select value={timeFilter} onValueChange={(value) => setTimeFilter(value as 'today' | 'week' | 'month' | 'all')}>
                 <SelectTrigger className="w-full sm:w-[180px]">
                   <SelectValue placeholder="Thời gian" />
@@ -559,25 +566,23 @@ return (
                   <TableHead className="w-[80px]">Hạng</TableHead>
                   <TableHead>Học viên</TableHead>
                   <TableHead>Điểm</TableHead>
-                  {TOEIC_PARTS.map((part) => (
-                    <TableHead key={part.key} className="text-center">
-                      {part.part}
-                    </TableHead>
-                  ))}
-                  <TableHead>Số kỳ thi</TableHead>
+                  <TableHead>Sao điểm danh</TableHead>
+                  <TableHead>Bài tập</TableHead>
+                  <TableHead>Đề thi</TableHead>
+                  <TableHead>Tổng bài và đề thi</TableHead>
                   <TableHead className="text-right">Cập nhật</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredData.map((user, index) => (
                   <TableRow
-                    key={user.rank}
-                    className={`hover:bg-muted/50 cursor-pointer ${index < 3 ? 'bg-primary/5' : ''}`}
+                    key={`${user.rank}-${user.username}`}
+                    className={`hover:bg-muted/50 cursor-pointer ${user.rank <= 3 ? 'bg-primary/5' : ''}`}
                     onClick={() => setSelectedUser(user)}
                   >
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
-                        {getRankIcon(index + 1)}
+                        {getRankIcon(user.rank)}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -594,22 +599,20 @@ return (
                       <Badge
                         variant="secondary"
                         className={`${
-                          index === 0
+                          user.rank === 1
                             ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-md shadow-amber-200/60'
                             : `${badgeHighlight} px-3 py-1`
                         }`}
                       >
-                        {Math.round(getFilterScore(user, partFilter))}
+                        {Math.round(user.totalScore)}
                       </Badge>
                     </TableCell>
-                    {TOEIC_PARTS.map((part) => (
-                      <TableCell key={part.key} className="text-center text-sm text-muted-foreground">
-                        {Math.round(getFilterScore(user, part.key))}
-                      </TableCell>
-                    ))}
-                    <TableCell>{user.exams} kỳ</TableCell>
+                    <TableCell>{user.attendanceStars}</TableCell>
+                    <TableCell>{user.exercises}</TableCell>
+                    <TableCell>{user.exams}</TableCell>
+                    <TableCell>{user.totalAssignmentsAndExams}</TableCell>
                     <TableCell className="text-right text-muted-foreground text-xs">
-                      {user.lastUpdate}
+                      {formatUpdateTime(user.lastUpdate)}
                     </TableCell>
                   </TableRow>
                 ))}

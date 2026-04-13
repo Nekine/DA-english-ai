@@ -3,6 +3,7 @@ import { appConfig } from "../config";
 import { generateJsonFromProvider, type AiProvider } from "./ai/ai-client";
 import { triggerLearningInsightsRefresh } from "./learning-insights-service";
 import { loadPromptTemplate } from "./ai/prompt-loader";
+import { recordAttendanceFromCompletionByNguoiDungId } from "./progress-service";
 
 const readingRepository = new ReadingExerciseRepository();
 let inMemoryReadingId = 1;
@@ -1282,6 +1283,11 @@ export async function submitReadingResult(input: {
 
   const score = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 10000) / 100 : 0;
 
+  const completedAt = (() => {
+    const completedAtRaw = input.completedAt ? new Date(input.completedAt) : new Date();
+    return Number.isNaN(completedAtRaw.getTime()) ? new Date() : completedAtRaw;
+  })();
+
   const completion = await readingRepository.addCompletion({
     nguoiDungId,
     exerciseId: input.exerciseId,
@@ -1295,10 +1301,12 @@ export async function submitReadingResult(input: {
     score,
     totalQuestions,
     correctAnswers,
-    completedAt: (() => {
-      const completedAtRaw = input.completedAt ? new Date(input.completedAt) : new Date();
-      return Number.isNaN(completedAtRaw.getTime()) ? new Date() : completedAtRaw;
-    })(),
+    completedAt,
+  });
+
+  await recordAttendanceFromCompletionByNguoiDungId({
+    nguoiDungId,
+    completedAt,
   });
 
   triggerLearningInsightsRefresh({

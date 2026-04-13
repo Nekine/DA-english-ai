@@ -5,6 +5,7 @@ import { triggerLearningInsightsRefresh } from "./learning-insights-service";
 import { appConfig } from "../config";
 import { exerciseRepository } from "../database/repositories/exercise-repository";
 import { logger } from "../utils/logger";
+import { recordAttendanceFromCompletionByNguoiDungId } from "./progress-service";
 
 type ListeningQuestion = {
   Question: string;
@@ -992,6 +993,11 @@ export async function gradeListeningExercise(input: {
           correctAnswers,
           completedAt,
           details,
+        });
+
+        await recordAttendanceFromCompletionByNguoiDungId({
+          nguoiDungId: effectiveNguoiDungId,
+          completedAt,
         });
 
         triggerLearningInsightsRefresh({

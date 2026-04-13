@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
   Book,
   GraduationCap,
@@ -21,6 +22,8 @@ import {
 import MainLayout from '@/layouts/MainLayout';
 import { useAuth0Integration } from '@/hooks/useAuth0Integration';
 import { useDatabaseLeaderboard } from '@/hooks/useDatabaseStats';
+import { useAuth } from '@/components/AuthContext';
+import { apiService } from '@/services/api';
 
 const quickActions = [
   {
@@ -94,12 +97,37 @@ const practiceTracks = [
   },
 ];
 
+type AttendanceSummaryResponse = {
+  generatedAt: string;
+  days: number;
+  summary: {
+    totalCheckIns: number;
+    totalStars: number;
+    currentStreak: number;
+    longestStreak: number;
+    lastCheckInDate: string | null;
+  };
+};
+
 const Index = () => {
   useAuth0Integration();
+  const { user } = useAuth();
 
   const leaderboardQuery = useDatabaseLeaderboard('weekly', 5);
   const leaderboardData = leaderboardQuery.data ?? [];
   const topLearners = leaderboardData.slice(0, 5);
+
+  const attendanceSummaryQuery = useQuery({
+    queryKey: ['home-attendance-summary', user?.userId],
+    queryFn: async (): Promise<AttendanceSummaryResponse> => {
+      return apiService.get<AttendanceSummaryResponse>('/api/progress/attendance?days=84');
+    },
+    enabled: Boolean(user),
+    staleTime: 60_000,
+  });
+
+  const attendanceStars = attendanceSummaryQuery.data?.summary.totalStars ?? 0;
+  const attendanceStreak = attendanceSummaryQuery.data?.summary.currentStreak ?? 0;
 
   const leaderboardContent = leaderboardQuery.isLoading ? (
     <p className="text-sm text-slate-500">Đang tải dữ liệu...</p>
@@ -111,7 +139,7 @@ const Index = () => {
         <span className="font-semibold text-slate-700 dark:text-slate-200">
           #{entry.rank} {entry.fullName || entry.username}
         </span>
-        <span className="text-slate-500">{entry.weeklyXp ?? entry.totalXp} XP</span>
+        <span className="text-slate-500">{(entry.weeklyXp && entry.weeklyXp > 0 ? entry.weeklyXp : entry.totalXp) ?? 0} XP</span>
       </div>
     ))
   );
@@ -232,57 +260,98 @@ const Index = () => {
               </div>
 
               <div className="mt-6 flex justify-center">
-                <Link
-                  to="/leaderboard"
-                  className="group w-full max-w-sm rounded-2xl border border-white/70 bg-white/80 p-4 text-center shadow-sm transition hover:-translate-y-1 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900/50"
-                >
-                  <div className="flex items-center justify-center gap-3 text-slate-900 dark:text-slate-100">
-                    <Trophy className="h-5 w-5 text-yellow-500" />
-                    <span className="font-semibold">Bảng xếp hạng</span>
-                  </div>
-                  <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Đua top, giữ streak mỗi tuần.</p>
-                </Link>
+                <div className="w-full max-w-sm space-y-3">
+                  <Link
+                    to="/leaderboard"
+                    className="group block rounded-2xl border border-white/70 bg-white/80 p-4 text-center shadow-sm transition hover:-translate-y-1 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900/50"
+                  >
+                    <div className="flex items-center justify-center gap-3 text-slate-900 dark:text-slate-100">
+                      <Trophy className="h-5 w-5 text-yellow-500" />
+                      <span className="font-semibold">Bảng xếp hạng</span>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Đua top, giữ streak mỗi tuần.</p>
+                  </Link>
+
+                  <Link
+                    to="/progress#attendance-board"
+                    className="group block rounded-2xl border border-amber-200/80 bg-amber-50/90 p-4 text-center shadow-sm transition hover:-translate-y-1 hover:shadow-lg dark:border-amber-800/70 dark:bg-amber-950/30"
+                  >
+                    <div className="flex items-center justify-center gap-3 text-amber-900 dark:text-amber-100">
+                      <Star className="h-5 w-5 text-amber-500" />
+                      <span className="font-semibold">Sao điểm danh</span>
+                    </div>
+                    <p className="mt-2 text-sm text-amber-700 dark:text-amber-200">{attendanceStars} sao </p>
+                  </Link>
+                </div>
               </div>
             </motion.div>
           </div>
 
           <div className="mt-10 lg:hidden">
-            <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/50">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Top học viên tuần này</p>
-                <Link to="/leaderboard" className="text-xs font-semibold text-rose-600">
-                  Xem bảng xếp hạng
-                </Link>
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/50">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Top học viên tuần này</p>
+                  <Link to="/leaderboard" className="text-xs font-semibold text-rose-600">
+                    Xem bảng xếp hạng
+                  </Link>
+                </div>
+                <div className="mt-4 space-y-3">{leaderboardContent}</div>
               </div>
-              <div className="mt-4 space-y-3">{leaderboardContent}</div>
+
+              <Link
+                to="/progress#attendance-board"
+                className="block rounded-2xl border border-amber-200/80 bg-amber-50/90 p-4 shadow-sm dark:border-amber-800/70 dark:bg-amber-950/30"
+              >
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">Sao điểm danh</p>
+                  <Star className="h-4 w-4 text-amber-500" />
+                </div>
+                <p className="mt-2 text-2xl font-semibold text-amber-900 dark:text-amber-100">{attendanceStars}</p>
+                <p className="text-xs text-amber-700 dark:text-amber-200">{attendanceStreak} ngày streak</p>
+              </Link>
             </div>
           </div>
         </div>
 
         <div className="absolute right-10 top-10 hidden xl:block">
-          <div className="w-64 rounded-2xl border border-white/70 bg-white/90 p-4 shadow-xl shadow-rose-200/40 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Top học viên tuần này</p>
-              <Star className="h-4 w-4 text-yellow-500" />
+          <div className="w-64 space-y-3">
+            <div className="rounded-2xl border border-white/70 bg-white/90 p-4 shadow-xl shadow-rose-200/40 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Top học viên tuần này</p>
+                <Star className="h-4 w-4 text-yellow-500" />
+              </div>
+              <div className="mt-3 space-y-3">
+                {leaderboardQuery.isLoading && <p className="text-xs text-slate-500">Đang tải dữ liệu...</p>}
+                {!leaderboardQuery.isLoading && topLearners.length === 0 && (
+                  <p className="text-xs text-slate-500">Chưa có dữ liệu xếp hạng.</p>
+                )}
+                {topLearners.map((entry) => (
+                  <div key={entry.userId} className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-slate-700 dark:text-slate-200">#{entry.rank}</span>
+                    <span className="flex-1 truncate px-2 text-slate-600 dark:text-slate-300">
+                      {entry.fullName || entry.username}
+                    </span>
+                    <span className="text-slate-500">{(entry.weeklyXp && entry.weeklyXp > 0 ? entry.weeklyXp : entry.totalXp) ?? 0} XP</span>
+                  </div>
+                ))}
+              </div>
+              <Link to="/leaderboard" className="mt-4 inline-flex items-center text-xs font-semibold text-rose-600">
+                Xem chi tiết
+                <ChevronRight className="ml-1 h-3 w-3" />
+              </Link>
             </div>
-            <div className="mt-3 space-y-3">
-              {leaderboardQuery.isLoading && <p className="text-xs text-slate-500">Đang tải dữ liệu...</p>}
-              {!leaderboardQuery.isLoading && topLearners.length === 0 && (
-                <p className="text-xs text-slate-500">Chưa có dữ liệu xếp hạng.</p>
-              )}
-              {topLearners.map((entry) => (
-                <div key={entry.userId} className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-slate-700 dark:text-slate-200">#{entry.rank}</span>
-                  <span className="flex-1 truncate px-2 text-slate-600 dark:text-slate-300">
-                    {entry.fullName || entry.username}
-                  </span>
-                  <span className="text-slate-500">{entry.weeklyXp ?? entry.totalXp} XP</span>
-                </div>
-              ))}
-            </div>
-            <Link to="/leaderboard" className="mt-4 inline-flex items-center text-xs font-semibold text-rose-600">
-              Xem chi tiết
-              <ChevronRight className="ml-1 h-3 w-3" />
+
+            <Link
+              to="/progress#attendance-board"
+              className="block rounded-2xl border border-amber-200/80 bg-amber-50/90 p-4 shadow-lg shadow-amber-100/60 backdrop-blur transition hover:-translate-y-0.5 hover:shadow-xl dark:border-amber-800/70 dark:bg-amber-950/30"
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">Sao điểm danh</p>
+                <Star className="h-4 w-4 text-amber-500" />
+              </div>
+              <p className="mt-2 text-2xl font-semibold text-amber-900 dark:text-amber-100">{attendanceStars}</p>
+              <p className="text-xs text-amber-700 dark:text-amber-200">{attendanceStreak} ngày streak</p>
             </Link>
           </div>
         </div>

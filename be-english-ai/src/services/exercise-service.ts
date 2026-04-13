@@ -1,6 +1,7 @@
 import { exerciseRepository } from "../database/repositories/exercise-repository";
 import { appConfig } from "../config";
 import { triggerLearningInsightsRefresh } from "./learning-insights-service";
+import { recordAttendanceFromCompletionByNguoiDungId } from "./progress-service";
 
 type CreatedExerciseKind = "grammar" | "writing";
 
@@ -606,6 +607,11 @@ export async function submitAiExerciseResult(input: {
     details,
   });
 
+  await recordAttendanceFromCompletionByNguoiDungId({
+    nguoiDungId,
+    completedAt,
+  });
+
   triggerLearningInsightsRefresh({
     nguoiDungId,
     attemptNumber: completion.attemptNumber,
@@ -728,6 +734,11 @@ export async function submitSentenceWritingResult(input: {
     correctAnswers: correctCount,
     completedAt,
     details,
+  });
+
+  await recordAttendanceFromCompletionByNguoiDungId({
+    nguoiDungId,
+    completedAt,
   });
 
   triggerLearningInsightsRefresh({

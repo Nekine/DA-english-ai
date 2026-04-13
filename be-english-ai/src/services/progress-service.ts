@@ -3,6 +3,28 @@ import { exerciseRepository } from "../database/repositories/exercise-repository
 
 type SkillKey = "listening" | "speaking" | "reading" | "writing" | "grammar";
 
+type AttendanceSummary = {
+  totalCheckIns: number;
+  totalStars: number;
+  currentStreak: number;
+  longestStreak: number;
+  lastCheckInDate: string | null;
+};
+
+type AttendanceBoardItem = {
+  date: string;
+  weekday: string;
+  checkedIn: boolean;
+  minutes: number;
+  xpBonus: number;
+  goalCompleted: boolean;
+  isToday: boolean;
+};
+
+type AttendanceSnapshot = AttendanceSummary & {
+  board: AttendanceBoardItem[];
+};
+
 function toIso(value: Date | null): string | null {
   return value ? value.toISOString() : null;
 }
@@ -21,6 +43,26 @@ function formatSqlDateTime(value: Date): string {
 
 function round(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function toDateKeyUtc(value: Date): string {
+  return value.toISOString().slice(0, 10);
+}
+
+function fromDateKeyUtc(value: string): Date {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function addDaysUtc(value: Date, days: number): Date {
+  const next = new Date(value);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function daysBetweenDateKeysUtc(from: string, to: string): number {
+  const fromTime = fromDateKeyUtc(from).getTime();
+  const toTime = fromDateKeyUtc(to).getTime();
+  return Math.round((toTime - fromTime) / 86_400_000);
 }
 
 function levelByXp(totalXp: number): number {
@@ -66,6 +108,98 @@ function normalizeExerciseType(rawType: string): SkillKey {
   return "grammar";
 }
 
+function buildAttendanceSnapshot(
+  rows: Array<{ dateKey: Date; soPhutHoc: number; xpThuong: number; coHoanThanhMucTieu: boolean | number }>,
+  boardDays: number,
+): AttendanceSnapshot {
+  const normalizedRows = rows
+    .map((row) => ({
+      key: toDateKeyUtc(new Date(row.dateKey)),
+      soPhutHoc: Math.max(0, Number(row.soPhutHoc) || 0),
+      xpThuong: Math.max(0, Number(row.xpThuong) || 0),
+      coHoanThanhMucTieu: Boolean(row.coHoanThanhMucTieu),
+    }))
+    .sort((a, b) => a.key.localeCompare(b.key));
+
+  const byDate = new Map<string, { soPhutHoc: number; xpThuong: number; coHoanThanhMucTieu: boolean }>();
+  for (const row of normalizedRows) {
+    byDate.set(row.key, {
+      soPhutHoc: row.soPhutHoc,
+      xpThuong: row.xpThuong,
+      coHoanThanhMucTieu: row.coHoanThanhMucTieu,
+    });
+  }
+
+  const keys = [...byDate.keys()].sort((a, b) => a.localeCompare(b));
+  const totalCheckIns = keys.length;
+  const totalStars = totalCheckIns;
+  const lastCheckInDate = keys.length > 0 ? (keys[keys.length - 1] ?? null) : null;
+
+  let longestStreak = 0;
+  let runningStreak = 0;
+  let previousKey: string | null = null;
+
+  for (const key of keys) {
+    if (previousKey && daysBetweenDateKeysUtc(previousKey, key) === 1) {
+      runningStreak += 1;
+    } else {
+      runningStreak = 1;
+    }
+    longestStreak = Math.max(longestStreak, runningStreak);
+    previousKey = key;
+  }
+
+  const todayKey = toDateKeyUtc(new Date());
+  const yesterdayKey = toDateKeyUtc(addDaysUtc(fromDateKeyUtc(todayKey), -1));
+
+  let currentStreak = 0;
+  if (lastCheckInDate && (lastCheckInDate === todayKey || lastCheckInDate === yesterdayKey)) {
+    currentStreak = 1;
+    for (let idx = keys.length - 2; idx >= 0; idx -= 1) {
+      const nextKey = keys[idx + 1];
+      if (!nextKey) {
+        break;
+      }
+      const expectedPrev = addDaysUtc(fromDateKeyUtc(nextKey), -1);
+      const expectedPrevKey = toDateKeyUtc(expectedPrev);
+      if (keys[idx] !== expectedPrevKey) {
+        break;
+      }
+      currentStreak += 1;
+    }
+  }
+
+  const safeBoardDays = Math.max(1, Math.min(365, Math.trunc(boardDays)));
+  const todayDate = fromDateKeyUtc(todayKey);
+  const startDate = addDaysUtc(todayDate, -safeBoardDays + 1);
+  const board: AttendanceBoardItem[] = [];
+
+  for (let offset = 0; offset < safeBoardDays; offset += 1) {
+    const date = addDaysUtc(startDate, offset);
+    const key = toDateKeyUtc(date);
+    const row = byDate.get(key);
+
+    board.push({
+      date: key,
+      weekday: weekdayLabel(date),
+      checkedIn: Boolean(row),
+      minutes: row?.soPhutHoc ?? 0,
+      xpBonus: row?.xpThuong ?? 0,
+      goalCompleted: row?.coHoanThanhMucTieu ?? false,
+      isToday: key === todayKey,
+    });
+  }
+
+  return {
+    totalCheckIns,
+    totalStars,
+    currentStreak,
+    longestStreak,
+    lastCheckInDate,
+    board,
+  };
+}
+
 type BuiltProgress = {
   overview: {
     generatedAt: string;
@@ -89,6 +223,7 @@ type BuiltProgress = {
       mucTieuHangNgayPhut: number;
       soNgayDiemDanhLienTiep: number;
     };
+    attendance: AttendanceSnapshot;
     exerciseBySkill: Array<{
       skill: SkillKey;
       label: string;
@@ -201,6 +336,10 @@ type BuildProgressOptions = {
   days?: number;
 };
 
+type BuildAttendanceOptions = {
+  days?: number;
+};
+
 async function buildProgressByNguoiDungId(
   nguoiDungId: number,
   options: BuildProgressOptions = {},
@@ -212,13 +351,22 @@ async function buildProgressByNguoiDungId(
 
   const days = Math.min(Math.max(options.days ?? 7, 1), 30);
 
-  const [exerciseSummary, examSummary, exerciseTypeAggregates, examPartAggregates, activities, dailyRows] = await Promise.all([
+  const [
+    exerciseSummary,
+    examSummary,
+    exerciseTypeAggregates,
+    examPartAggregates,
+    activities,
+    dailyRows,
+    attendanceRows,
+  ] = await Promise.all([
     progressRepository.getExerciseCompletionSummary(seed.nguoiDungId),
     progressRepository.getExamCompletionSummary(seed.nguoiDungId),
     progressRepository.getExerciseTypeAggregates(seed.nguoiDungId),
     progressRepository.getExamPartAggregates(seed.nguoiDungId),
     progressRepository.getRecentActivities(seed.nguoiDungId, 20),
     progressRepository.getDailyProgressLastDays(seed.nguoiDungId, days),
+    progressRepository.getAllAttendanceDays(seed.nguoiDungId),
   ]);
 
   const skillOrder: SkillKey[] = ["listening", "speaking", "reading", "writing", "grammar"];
@@ -300,8 +448,7 @@ async function buildProgressByNguoiDungId(
 
   const weeklyMinutes = weekly.reduce((sum, day) => sum + day.timeSpentMinutes, 0);
   const weeklyExercises = weekly.reduce((sum, day) => sum + day.exercisesCompleted, 0);
-  const today = weekly[weekly.length - 1];
-  const todayMinutes = today?.timeSpentMinutes ?? 0;
+  const attendance = buildAttendanceSnapshot(attendanceRows, 84);
 
   const totalExercises = Number(exerciseSummary.totalExercises) || 0;
   const totalExams = Number(examSummary.totalExams) || 0;
@@ -321,8 +468,8 @@ async function buildProgressByNguoiDungId(
   const tongXP = Math.max(Number(seed.tongXP) || 0, derivedXp);
 
   const mucTieuHangNgayPhut = Math.max(15, Number(seed.mucTieuHangNgayPhut) || 30);
-  const soNgayDiemDanhLienTiep = Number(seed.soNgayDiemDanhLienTiep) || 0;
-  const ngayDiemDanhGanNhat = todayMinutes > 0 ? new Date() : seed.ngayDiemDanhGanNhat;
+  const soNgayDiemDanhLienTiep = attendance.currentStreak;
+  const ngayDiemDanhGanNhat = attendance.lastCheckInDate ? fromDateKeyUtc(attendance.lastCheckInDate) : null;
 
   await progressRepository.upsertTienDoHocTap({
     nguoiDungId: seed.nguoiDungId,
@@ -338,14 +485,6 @@ async function buildProgressByNguoiDungId(
     ngayDiemDanhGanNhat,
     mucTieuHangNgayPhut,
     capDoHienTai: seed.trinhDoHienTai,
-  });
-
-  await progressRepository.upsertDiemDanhNgay({
-    nguoiDungId: seed.nguoiDungId,
-    ngayDiemDanh: new Date(),
-    soPhutHoc: todayMinutes,
-    xpThuong: Math.max(0, Math.round(todayMinutes / 5)),
-    coHoanThanhMucTieu: todayMinutes >= mucTieuHangNgayPhut,
   });
 
   const mappedActivities: BuiltProgress["overview"]["activities"] = activities.map((row) => {
@@ -389,6 +528,7 @@ async function buildProgressByNguoiDungId(
       mucTieuHangNgayPhut,
       soNgayDiemDanhLienTiep,
     },
+    attendance,
     exerciseBySkill,
     exam: {
       totalExams,
@@ -415,7 +555,7 @@ async function buildProgressByNguoiDungId(
       averageScore: round(((Number(exerciseSummary.averageScore) || 0) + (Number(examSummary.averageScore) || 0)) / 2),
       totalStudyTime: tongPhutHoc,
       currentStreak: soNgayDiemDanhLienTiep,
-      longestStreak: soNgayDiemDanhLienTiep,
+      longestStreak: attendance.longestStreak,
       level: `Level ${currentLevelByXp}`,
       experiencePoints: tongXP,
       nextLevelXP: nextLevelXp,
@@ -477,22 +617,89 @@ async function buildProgressByNguoiDungId(
   };
 }
 
-export async function getProgressOverviewByTaiKhoanId(
-  taiKhoanId: number,
-  options: BuildProgressOptions = {},
-) {
+async function resolveNguoiDungIdByTaiKhoanId(taiKhoanId: number): Promise<number | null> {
   let seed = await progressRepository.getSeedByTaiKhoanId(taiKhoanId);
   if (!seed) {
     await exerciseRepository.resolveNguoiDungIdByTaiKhoanId(taiKhoanId);
     seed = await progressRepository.getSeedByTaiKhoanId(taiKhoanId);
   }
 
-  if (!seed) {
+  return seed?.nguoiDungId ?? null;
+}
+
+async function buildAttendanceByNguoiDungId(
+  nguoiDungId: number,
+  options: BuildAttendanceOptions = {},
+): Promise<{
+  generatedAt: string;
+  days: number;
+  summary: AttendanceSummary;
+  board: AttendanceBoardItem[];
+}> {
+  const days = Math.max(28, Math.min(1825, Math.trunc(options.days ?? 365)));
+  const rows = await progressRepository.getAllAttendanceDays(nguoiDungId);
+  const snapshot = buildAttendanceSnapshot(rows, days);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    days,
+    summary: {
+      totalCheckIns: snapshot.totalCheckIns,
+      totalStars: snapshot.totalStars,
+      currentStreak: snapshot.currentStreak,
+      longestStreak: snapshot.longestStreak,
+      lastCheckInDate: snapshot.lastCheckInDate,
+    },
+    board: snapshot.board,
+  };
+}
+
+export async function getProgressOverviewByTaiKhoanId(
+  taiKhoanId: number,
+  options: BuildProgressOptions = {},
+) {
+  const nguoiDungId = await resolveNguoiDungIdByTaiKhoanId(taiKhoanId);
+  if (!nguoiDungId) {
     return null;
   }
 
-  const built = await buildProgressByNguoiDungId(seed.nguoiDungId, options);
+  const built = await buildProgressByNguoiDungId(nguoiDungId, options);
   return built?.overview ?? null;
+}
+
+export async function getProgressAttendanceByTaiKhoanId(
+  taiKhoanId: number,
+  options: BuildAttendanceOptions = {},
+) {
+  const nguoiDungId = await resolveNguoiDungIdByTaiKhoanId(taiKhoanId);
+  if (!nguoiDungId) {
+    return null;
+  }
+
+  return buildAttendanceByNguoiDungId(nguoiDungId, options);
+}
+
+export async function recordAttendanceFromCompletionByNguoiDungId(input: {
+  nguoiDungId: number;
+  completedAt?: Date;
+  minutesSpent?: number;
+}): Promise<{ created: boolean; checkInDate: string }> {
+  const completedAt = input.completedAt ?? new Date();
+  const validCompletedAt = Number.isNaN(completedAt.getTime()) ? new Date() : completedAt;
+  const seed = await progressRepository.getSeedByNguoiDungId(input.nguoiDungId);
+  const dailyGoalMinutes = Math.max(15, Number(seed?.mucTieuHangNgayPhut) || 30);
+
+  const result = await progressRepository.recordAttendanceFromCompletion({
+    nguoiDungId: input.nguoiDungId,
+    completedAt: validCompletedAt,
+    minutesSpent: Math.max(1, Math.trunc(Number(input.minutesSpent) || 1)),
+    dailyGoalMinutes,
+  });
+
+  return {
+    created: result.created,
+    checkInDate: toDateKeyUtc(new Date(result.checkInDate)),
+  };
 }
 
 export async function getProgressStats(userId: number) {

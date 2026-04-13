@@ -97,7 +97,7 @@ export const useAuth0Integration = () => {
       if (isAuthenticated) {
         await auth0Logout({
           logoutParams: {
-            returnTo: window.location.origin,
+            returnTo: `${window.location.origin}/login`,
           },
         });
       }

@@ -5,6 +5,7 @@ import { appConfig } from "../config";
 import { exerciseRepository } from "../database/repositories/exercise-repository";
 import { testExamRepository, type TestExamDbRow } from "../database/repositories/test-exam-repository";
 import { triggerLearningInsightsRefresh } from "./learning-insights-service";
+import { recordAttendanceFromCompletionByNguoiDungId } from "./progress-service";
 import { logger } from "../utils/logger";
 
 export type ToeicPartStatus = "pending" | "ready" | "failed";
@@ -1682,6 +1683,16 @@ export async function submitTestExamResult(input: SubmitTestExamInput): Promise<
       trangThaiBaiLam: "graded",
     });
     completionPersisted = completion.persisted;
+
+    const attendanceMinutes = Number.isFinite(Number(input.durationMinutes))
+      ? Math.max(1, Math.trunc(Number(input.durationMinutes)))
+      : null;
+
+    await recordAttendanceFromCompletionByNguoiDungId({
+      nguoiDungId,
+      completedAt: validCompletedAt,
+      ...(attendanceMinutes ? { minutesSpent: attendanceMinutes } : {}),
+    });
 
     if (completion.persisted) {
       triggerLearningInsightsRefresh({

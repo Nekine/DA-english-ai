@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { HTTP_STATUS } from "../../constants/http-status";
 import {
+  getProgressAttendanceByTaiKhoanId,
   getProgressActivities,
   getProgressOverviewByTaiKhoanId,
   getProgressStats,
@@ -27,6 +28,25 @@ export async function getProgressOverviewHandler(req: Request, res: Response): P
   const data = await getProgressOverviewByTaiKhoanId(taiKhoanId, { days });
   if (!data) {
     res.status(HTTP_STATUS.NOT_FOUND).json({ message: "Progress data not found" });
+    return;
+  }
+
+  res.status(HTTP_STATUS.OK).json(data);
+}
+
+export async function getProgressAttendanceHandler(req: Request, res: Response): Promise<void> {
+  const taiKhoanId = getAuthenticatedTaiKhoanId(req);
+  if (!Number.isInteger(taiKhoanId) || taiKhoanId <= 0) {
+    res.status(HTTP_STATUS.UNAUTHORIZED).json({ message: "Invalid or missing token" });
+    return;
+  }
+
+  const rawDays = Number(req.query.days ?? 365);
+  const days = Number.isFinite(rawDays) ? Math.min(Math.max(Math.trunc(rawDays), 28), 1825) : 365;
+
+  const data = await getProgressAttendanceByTaiKhoanId(taiKhoanId, { days });
+  if (!data) {
+    res.status(HTTP_STATUS.NOT_FOUND).json({ message: "Attendance data not found" });
     return;
   }
 

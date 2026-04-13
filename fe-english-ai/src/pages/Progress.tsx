@@ -7,12 +7,35 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useAuth } from "@/components/AuthContext";
 import { apiService } from "@/services/api";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, BookOpen, Clock, RefreshCw, Target, Trophy } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ArrowLeft, BookOpen, ChevronLeft, ChevronRight, Clock, RefreshCw, Star, Target, Trophy } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 type SkillKey = "listening" | "speaking" | "reading" | "writing" | "grammar";
+
+type AttendanceDayItem = {
+  date: string;
+  weekday: string;
+  checkedIn: boolean;
+  minutes: number;
+  xpBonus: number;
+  goalCompleted: boolean;
+  isToday: boolean;
+};
+
+type AttendanceResponse = {
+  generatedAt: string;
+  days: number;
+  summary: {
+    totalCheckIns: number;
+    totalStars: number;
+    currentStreak: number;
+    longestStreak: number;
+    lastCheckInDate: string | null;
+  };
+  board: AttendanceDayItem[];
+};
 
 type ProgressOverviewResponse = {
   generatedAt: string;
@@ -35,6 +58,14 @@ type ProgressOverviewResponse = {
     diemTrungBinhDeThi: number;
     mucTieuHangNgayPhut: number;
     soNgayDiemDanhLienTiep: number;
+  };
+  attendance: {
+    totalCheckIns: number;
+    totalStars: number;
+    currentStreak: number;
+    longestStreak: number;
+    lastCheckInDate: string | null;
+    board: AttendanceDayItem[];
   };
   exerciseBySkill: Array<{
     skill: SkillKey;
@@ -121,6 +152,10 @@ export default function Progress() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [chartRangeDays, setChartRangeDays] = useState<7 | 30>(7);
+  const [attendanceMonth, setAttendanceMonth] = useState<Date>(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
 
   const {
     data: overview,
@@ -137,6 +172,28 @@ export default function Progress() {
     staleTime: 60_000,
     placeholderData: (previousData) => previousData,
   });
+
+  const {
+    data: attendanceData,
+    isFetching: isAttendanceFetching,
+    refetch: refetchAttendance,
+  } = useQuery({
+    queryKey: ["progress-attendance"],
+    queryFn: async (): Promise<AttendanceResponse> => {
+      return apiService.get<AttendanceResponse>("/api/progress/attendance?days=365");
+    },
+    enabled: Boolean(user),
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    if (!isLoading && window.location.hash === "#attendance-board") {
+      const section = document.getElementById("attendance-board");
+      if (section) {
+        section.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+  }, [isLoading]);
 
   const weeklyChartData = useMemo(() => {
     if (!overview?.weekly?.length) {
@@ -162,6 +219,108 @@ export default function Progress() {
     const totalMinutes = overview.weekly.reduce((sum, item) => sum + item.timeSpentMinutes, 0);
     return `${chartRangeDays} ngày gần nhất: ${totalExercises} bài & đề, ${totalMinutes} phút học.`;
   }, [overview?.weekly, chartRangeDays]);
+
+  const attendance = overview?.attendance ?? {
+    totalCheckIns: 0,
+    totalStars: 0,
+    currentStreak: 0,
+    longestStreak: 0,
+    lastCheckInDate: null,
+    board: [] as AttendanceDayItem[],
+  };
+
+  const mergedAttendance = {
+    totalStars: attendanceData?.summary.totalStars ?? attendance.totalStars,
+    currentStreak: attendanceData?.summary.currentStreak ?? attendance.currentStreak,
+    longestStreak: attendanceData?.summary.longestStreak ?? attendance.longestStreak,
+    lastCheckInDate: attendanceData?.summary.lastCheckInDate ?? attendance.lastCheckInDate,
+    board: attendanceData?.board ?? attendance.board,
+  };
+
+  const attendanceByDate = useMemo(() => {
+    const map = new Map<string, AttendanceDayItem>();
+    for (const day of mergedAttendance.board) {
+      map.set(day.date, day);
+    }
+    return map;
+  }, [mergedAttendance.board]);
+
+  const attendanceMonthBounds = useMemo(() => {
+    if (mergedAttendance.board.length === 0) {
+      return null;
+    }
+
+    const firstDate = new Date(`${mergedAttendance.board[0]?.date}T00:00:00`);
+    const lastDate = new Date(`${mergedAttendance.board[mergedAttendance.board.length - 1]?.date}T00:00:00`);
+
+    if (Number.isNaN(firstDate.getTime()) || Number.isNaN(lastDate.getTime())) {
+      return null;
+    }
+
+    return {
+      min: new Date(firstDate.getFullYear(), firstDate.getMonth(), 1),
+      max: new Date(lastDate.getFullYear(), lastDate.getMonth(), 1),
+    };
+  }, [mergedAttendance.board]);
+
+  const monthTitle = useMemo(() => {
+    return attendanceMonth.toLocaleDateString("vi-VN", { month: "long", year: "numeric" });
+  }, [attendanceMonth]);
+
+  const attendanceMonthCells = useMemo(() => {
+    const year = attendanceMonth.getFullYear();
+    const month = attendanceMonth.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const startOffset = firstDay.getDay();
+    const cells: Array<{ key: string; day: AttendanceDayItem | null; dayNumber: number | null }> = [];
+
+    for (let i = 0; i < startOffset; i += 1) {
+      cells.push({ key: `empty-${i}`, day: null, dayNumber: null });
+    }
+
+    for (let dayNumber = 1; dayNumber <= daysInMonth; dayNumber += 1) {
+      const date = new Date(year, month, dayNumber);
+      const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(dayNumber).padStart(2, "0")}`;
+      cells.push({
+        key: dateKey,
+        day: attendanceByDate.get(dateKey) ?? null,
+        dayNumber,
+      });
+    }
+
+    return cells;
+  }, [attendanceMonth, attendanceByDate]);
+
+  const canGoPrevMonth = attendanceMonthBounds
+    ? attendanceMonth.getTime() > attendanceMonthBounds.min.getTime()
+    : false;
+  const canGoNextMonth = attendanceMonthBounds
+    ? attendanceMonth.getTime() < attendanceMonthBounds.max.getTime()
+    : false;
+
+  const goPrevMonth = () => {
+    setAttendanceMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const goNextMonth = () => {
+    setAttendanceMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  useEffect(() => {
+    if (!attendanceMonthBounds) {
+      return;
+    }
+
+    if (attendanceMonth.getTime() < attendanceMonthBounds.min.getTime()) {
+      setAttendanceMonth(attendanceMonthBounds.min);
+      return;
+    }
+
+    if (attendanceMonth.getTime() > attendanceMonthBounds.max.getTime()) {
+      setAttendanceMonth(attendanceMonthBounds.max);
+    }
+  }, [attendanceMonth, attendanceMonthBounds]);
 
   if (!user) {
     return (
@@ -207,7 +366,13 @@ export default function Progress() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button onClick={() => void refetch()} variant="outline">
+              <Button
+                onClick={() => {
+                  void refetch();
+                  void refetchAttendance();
+                }}
+                variant="outline"
+              >
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Tải lại
               </Button>
@@ -237,8 +402,15 @@ export default function Progress() {
             </p>
           </div>
 
-          <Button variant="outline" onClick={() => void refetch()} disabled={isFetching}>
-            <RefreshCw className={`w-4 h-4 mr-2 ${isFetching ? "animate-spin" : ""}`} />
+          <Button
+            variant="outline"
+            onClick={() => {
+              void refetch();
+              void refetchAttendance();
+            }}
+            disabled={isFetching || isAttendanceFetching}
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${(isFetching || isAttendanceFetching) ? "animate-spin" : ""}`} />
             Làm mới
           </Button>
         </div>
@@ -300,6 +472,92 @@ export default function Progress() {
             </CardContent>
           </Card>
         </div>
+
+        <Card id="attendance-board">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Star className="w-5 h-5 text-amber-500" />
+              Bảng điểm danh hàng ngày
+            </CardTitle>
+            <CardDescription>
+              Điểm danh được tính khi bạn hoàn thành bài tập hoặc đề thi đầu tiên trong ngày.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+              <div className="rounded-lg border p-3">
+                <p className="text-sm text-muted-foreground">Tổng sao</p>
+                <p className="text-2xl font-bold text-amber-600">{mergedAttendance.totalStars}</p>
+              </div>
+              <div className="rounded-lg border p-3">
+                <p className="text-sm text-muted-foreground">Streak hiện tại</p>
+                <p className="text-2xl font-bold">{mergedAttendance.currentStreak} ngày</p>
+              </div>
+              <div className="rounded-lg border p-3">
+                <p className="text-sm text-muted-foreground">Streak dài nhất</p>
+                <p className="text-2xl font-bold">{mergedAttendance.longestStreak} ngày</p>
+              </div>
+              <div className="rounded-lg border p-3">
+                <p className="text-sm text-muted-foreground">Điểm danh gần nhất</p>
+                <p className="text-base font-semibold">
+                  {mergedAttendance.lastCheckInDate
+                    ? new Date(mergedAttendance.lastCheckInDate).toLocaleDateString("vi-VN")
+                    : "Chưa có"}
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <Button variant="outline" size="sm" onClick={goPrevMonth} disabled={!canGoPrevMonth}>
+                  <ChevronLeft className="w-4 h-4 mr-1" />
+                  Tháng trước
+                </Button>
+                <p className="text-sm font-semibold capitalize">{monthTitle}</p>
+                <Button variant="outline" size="sm" onClick={goNextMonth} disabled={!canGoNextMonth}>
+                  Tháng sau
+                  <ChevronRight className="w-4 h-4 ml-1" />
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-7 gap-2 mb-2 text-xs text-muted-foreground">
+                {["CN", "T2", "T3", "T4", "T5", "T6", "T7"].map((label) => (
+                  <div key={label} className="text-center font-medium">{label}</div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-2">
+                {attendanceMonthCells.map((cell) => (
+                  <div
+                    key={cell.key}
+                    title={cell.day
+                      ? `${cell.day.date} - ${cell.day.checkedIn ? "Đã điểm danh" : "Chưa điểm danh"}`
+                      : ""
+                    }
+                    className={[
+                      "h-10 rounded-md border flex items-center justify-center text-xs font-semibold",
+                      cell.dayNumber === null ? "border-transparent bg-transparent" : "",
+                      cell.day && cell.day.checkedIn
+                        ? (cell.day.goalCompleted
+                          ? "bg-emerald-500 border-emerald-500 text-white"
+                          : "bg-amber-400 border-amber-400 text-slate-900")
+                        : (cell.dayNumber !== null ? "bg-slate-100 border-slate-200 text-slate-500" : ""),
+                      cell.day?.isToday ? "ring-2 ring-primary ring-offset-1" : "",
+                    ].join(" ")}
+                  >
+                    {cell.dayNumber ?? ""}
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-sm bg-amber-400 border border-amber-400" />Đã điểm danh</span>
+                <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-sm bg-emerald-500 border border-emerald-500" />Đạt mục tiêu phút học</span>
+                <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-sm bg-slate-100 border border-slate-200" />Chưa điểm danh</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>

@@ -65,6 +65,19 @@ export interface DailyProgressAggregateRow {
   timeSpentMinutes: number;
 }
 
+export interface AttendanceCheckInRow {
+  created: boolean | number;
+  checkInDate: Date;
+  xpAwarded?: number;
+}
+
+export interface AttendanceDayRow {
+  dateKey: Date;
+  soPhutHoc: number;
+  xpThuong: number;
+  coHoanThanhMucTieu: boolean | number;
+}
+
 export class ProgressRepository extends BaseRepository {
   async getSeedByNguoiDungId(nguoiDungId: number): Promise<ProgressSeedRow | null> {
     const request = await this.createRequest();
@@ -432,6 +445,130 @@ export class ProgressRepository extends BaseRepository {
         INSERT (NguoiDungId, NgayDiemDanh, SoPhutHoc, XPThuong, CoHoanThanhMucTieu)
         VALUES (@nguoiDungId, @ngayDiemDanh, @soPhutHoc, @xpThuong, @coHoanThanhMucTieu);
     `);
+  }
+
+  async recordAttendanceFromCompletion(input: {
+    nguoiDungId: number;
+    completedAt: Date;
+    minutesSpent: number;
+    dailyGoalMinutes: number;
+  }): Promise<{ created: boolean; checkInDate: Date }> {
+    const request = await this.createRequest();
+    const safeMinutes = Math.max(1, Math.trunc(input.minutesSpent));
+    const safeGoal = Math.max(1, Math.trunc(input.dailyGoalMinutes));
+    const xpBonus = Math.max(1, Math.round(safeMinutes / 5));
+
+    this.bindInput(request, "nguoiDungId", sql.Int, input.nguoiDungId);
+    this.bindInput(request, "completedAt", sql.DateTime2, input.completedAt);
+    this.bindInput(request, "minutesSpent", sql.Int, safeMinutes);
+    this.bindInput(request, "xpBonus", sql.Int, xpBonus);
+    this.bindInput(request, "dailyGoalMinutes", sql.Int, safeGoal);
+
+    const result = await request.query<AttendanceCheckInRow>(`
+      DECLARE @checkInDate DATE = CAST(@completedAt AS DATE);
+
+      IF EXISTS (
+        SELECT 1
+        FROM dbo.DiemDanhNgay WITH (UPDLOCK, HOLDLOCK)
+        WHERE NguoiDungId = @nguoiDungId
+          AND NgayDiemDanh = @checkInDate
+      )
+      BEGIN
+        UPDATE dbo.DiemDanhNgay
+        SET
+          SoPhutHoc = ISNULL(SoPhutHoc, 0) + @minutesSpent,
+          XPThuong = ISNULL(XPThuong, 0) + @xpBonus,
+          CoHoanThanhMucTieu = CASE
+            WHEN ISNULL(SoPhutHoc, 0) + @minutesSpent >= @dailyGoalMinutes THEN 1
+            ELSE ISNULL(CoHoanThanhMucTieu, 0)
+          END
+        WHERE NguoiDungId = @nguoiDungId
+          AND NgayDiemDanh = @checkInDate;
+
+        SELECT
+          CAST(0 AS BIT) AS created,
+          @checkInDate AS checkInDate,
+          CAST(0 AS INT) AS xpAwarded;
+      END
+      ELSE
+      BEGIN
+        INSERT INTO dbo.DiemDanhNgay (
+          NguoiDungId,
+          NgayDiemDanh,
+          SoPhutHoc,
+          XPThuong,
+          CoHoanThanhMucTieu
+        )
+        VALUES (
+          @nguoiDungId,
+          @checkInDate,
+          @minutesSpent,
+          @xpBonus,
+          CASE WHEN @minutesSpent >= @dailyGoalMinutes THEN 1 ELSE 0 END
+        );
+
+        UPDATE dbo.TienDoHocTap
+        SET
+          TongXP = ISNULL(TongXP, 0) + @xpBonus,
+          CapNhatLuc = SYSDATETIME()
+        WHERE NguoiDungId = @nguoiDungId;
+
+        IF @@ROWCOUNT = 0
+        BEGIN
+          INSERT INTO dbo.TienDoHocTap (NguoiDungId, TongXP, CapNhatLuc)
+          VALUES (@nguoiDungId, @xpBonus, SYSDATETIME());
+        END
+
+        SELECT
+          CAST(1 AS BIT) AS created,
+          @checkInDate AS checkInDate,
+          @xpBonus AS xpAwarded;
+      END
+    `);
+
+    const row = result.recordset[0];
+    return {
+      created: Boolean(row?.created),
+      checkInDate: row?.checkInDate ?? new Date(input.completedAt),
+    };
+  }
+
+  async getAttendanceDays(nguoiDungId: number, days: number): Promise<AttendanceDayRow[]> {
+    const request = await this.createRequest();
+    this.bindInput(request, "nguoiDungId", sql.Int, nguoiDungId);
+    this.bindInput(request, "days", sql.Int, Math.max(1, Math.min(365, Math.trunc(days))));
+
+    const result = await request.query<AttendanceDayRow>(`
+      SELECT
+        CAST(dd.NgayDiemDanh AS DATE) AS dateKey,
+        ISNULL(dd.SoPhutHoc, 0) AS soPhutHoc,
+        ISNULL(dd.XPThuong, 0) AS xpThuong,
+        ISNULL(dd.CoHoanThanhMucTieu, 0) AS coHoanThanhMucTieu
+      FROM dbo.DiemDanhNgay dd
+      WHERE dd.NguoiDungId = @nguoiDungId
+        AND dd.NgayDiemDanh >= DATEADD(DAY, -@days + 1, CAST(SYSDATETIME() AS DATE))
+      ORDER BY dd.NgayDiemDanh ASC
+    `);
+
+    return result.recordset;
+  }
+
+  async getAllAttendanceDays(nguoiDungId: number): Promise<AttendanceDayRow[]> {
+    const request = await this.createRequest();
+    this.bindInput(request, "nguoiDungId", sql.Int, nguoiDungId);
+
+    const result = await request.query<AttendanceDayRow>(`
+      SELECT
+        CAST(dd.NgayDiemDanh AS DATE) AS dateKey,
+        ISNULL(dd.SoPhutHoc, 0) AS soPhutHoc,
+        ISNULL(dd.XPThuong, 0) AS xpThuong,
+        ISNULL(dd.CoHoanThanhMucTieu, 0) AS coHoanThanhMucTieu
+      FROM dbo.DiemDanhNgay dd
+      WHERE dd.NguoiDungId = @nguoiDungId
+      ORDER BY dd.NgayDiemDanh ASC
+    `);
+
+    return result.recordset;
   }
 }
 

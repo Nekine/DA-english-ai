@@ -1,11 +1,23 @@
 import type { Request, Response } from "express";
 import { HTTP_STATUS } from "../../constants/http-status";
-import { getLeaderboard, getLeaderboardUserRank } from "../../services/leaderboard-service";
+import { getLeaderboard, getLeaderboardUserRank, getLeaderboardWithMeta } from "../../services/leaderboard-service";
 
 export async function getLeaderboardHandler(req: Request, res: Response): Promise<void> {
   const limit = Number(req.query.limit ?? 50);
   const timeFilter = typeof req.query.timeFilter === "string" ? req.query.timeFilter : undefined;
   const skill = typeof req.query.skill === "string" ? req.query.skill : undefined;
+  const includeMeta = req.query.includeMeta === "1" || req.query.includeMeta === "true";
+
+  if (includeMeta) {
+    const response = await getLeaderboardWithMeta({
+      limit,
+      ...(timeFilter ? { timeFilter } : {}),
+      ...(skill ? { skill } : {}),
+    });
+
+    res.status(HTTP_STATUS.OK).json(response);
+    return;
+  }
 
   const result = await getLeaderboard({
     limit,
