@@ -361,6 +361,9 @@ CREATE TABLE dbo.DiemDanhNgay (
 );
 GO
 
+select * from dbo.DiemDanhNgay
+select * from dbo.TienDoHocTap
+
 CREATE INDEX IX_TienDoHocTap_NguoiDungId ON dbo.TienDoHocTap(NguoiDungId);
 CREATE INDEX IX_DiemDanhNgay_NguoiDungId ON dbo.DiemDanhNgay(NguoiDungId);
 CREATE INDEX IX_DiemDanhNgay_NgayDiemDanh ON dbo.DiemDanhNgay(NgayDiemDanh);

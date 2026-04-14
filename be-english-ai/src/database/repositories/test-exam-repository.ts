@@ -71,6 +71,35 @@ export type TestExamCompletionPersistResult = {
 };
 
 export class TestExamRepository extends BaseRepository {
+  async updateNguoiDungLevelByNguoiDungId(input: {
+    nguoiDungId: number;
+    level: string;
+  }): Promise<void> {
+    const normalizedLevel = String(input.level ?? "").trim().toUpperCase();
+    if (!normalizedLevel) {
+      return;
+    }
+
+    const request = await this.createRequest();
+    this.bindInput(request, "nguoiDungId", sql.Int, input.nguoiDungId);
+    this.bindInput(request, "level", sql.NVarChar(20), normalizedLevel);
+
+    await request.query(`
+      UPDATE dbo.NguoiDung
+      SET
+        TrinhDoHienTai = @level,
+        NgayCapNhatTrinhDo = SYSDATETIME(),
+        NgayCapNhat = SYSDATETIME()
+      WHERE NguoiDungId = @nguoiDungId;
+
+      UPDATE dbo.TienDoHocTap
+      SET
+        CapDoHienTai = @level,
+        CapNhatLuc = SYSDATETIME()
+      WHERE NguoiDungId = @nguoiDungId;
+    `);
+  }
+
   async createExam(input: CreateTestExamDbInput): Promise<number> {
     const request = await this.createRequest();
     this.bindInput(request, "nguoiDungId", sql.Int, input.nguoiDungId);

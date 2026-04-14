@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useAuth } from "@/components/AuthContext";
 import { apiService } from "@/services/api";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, BookOpen, ChevronLeft, ChevronRight, Clock, RefreshCw, Star, Target, Trophy } from "lucide-react";
+import { ArrowLeft, BookOpen, ChevronLeft, ChevronRight, Clock, Compass, RefreshCw, Star, Target, Trophy } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -402,17 +402,24 @@ export default function Progress() {
             </p>
           </div>
 
-          <Button
-            variant="outline"
-            onClick={() => {
-              void refetch();
-              void refetchAttendance();
-            }}
-            disabled={isFetching || isAttendanceFetching}
-          >
-            <RefreshCw className={`w-4 h-4 mr-2 ${(isFetching || isAttendanceFetching) ? "animate-spin" : ""}`} />
-            Làm mới
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => navigate("/roadmap")}> 
+              <Compass className="w-4 h-4 mr-2" />
+              Lộ trình cá nhân hóa
+            </Button>
+
+            <Button
+              variant="outline"
+              onClick={() => {
+                void refetch();
+                void refetchAttendance();
+              }}
+              disabled={isFetching || isAttendanceFetching}
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${(isFetching || isAttendanceFetching) ? "animate-spin" : ""}`} />
+              Làm mới
+            </Button>
+          </div>
         </div>
 
         {overview.reminders.placementTest.show && (

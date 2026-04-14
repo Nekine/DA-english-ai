@@ -10,7 +10,7 @@ import { databaseStatsService, TimeFilter } from '../services/databaseStatsServi
 // Query keys for caching - IMPORTANT: Thay đổi keys khi thay đổi API structure
 export const DATABASE_STATS_QUERY_KEYS = {
   userStats: (userId: string) => ['database-stats', 'user', userId],
-  leaderboard: (timeFilter: TimeFilter) => ['database-stats', 'leaderboard', timeFilter],
+  leaderboard: (timeFilter: TimeFilter, limit: number) => ['database-stats', 'leaderboard', timeFilter, limit],
   progressData: (userId: string) => ['database-stats', 'progress', userId],
   readingExercises: () => ['database-stats', 'reading-exercises'],
 };
@@ -28,7 +28,7 @@ export const useDatabaseUserStats = (userId: string = 'current-user') => {
 // Hook để lấy leaderboard data từ database
 export const useDatabaseLeaderboard = (timeFilter: TimeFilter = 'all', limit: number = 50) => {
   return useQuery({
-    queryKey: DATABASE_STATS_QUERY_KEYS.leaderboard(timeFilter),
+    queryKey: DATABASE_STATS_QUERY_KEYS.leaderboard(timeFilter, limit),
     queryFn: () => databaseStatsService.getLeaderboard(timeFilter, limit),
     staleTime: 2 * 60 * 1000, // 2 minutes
     refetchOnWindowFocus: false,

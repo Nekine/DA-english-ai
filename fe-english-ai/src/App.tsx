@@ -24,6 +24,7 @@ import Login from "./pages/Login";
 import TestList from "./pages/TestList";
 import TestConfiguration from "./pages/TestConfiguration";
 import TestExam from "./pages/TestExam";
+import Roadmap from "./pages/Roadmap";
 
 import LoginAlt from "./pages/LoginAlt";
 import Register from "./pages/Register";
@@ -83,6 +84,7 @@ const App = () => (
                 <Route path="/test-stats" element={<TestStatistics />} />
 
                 <Route path="/progress" element={<Progress />} />
+                <Route path="/roadmap" element={<Roadmap />} />
                 <Route path="/leaderboard" element={<Leaderboard />} />
                 <Route path="/reading-exercises" element={<ReadingExercises />} />
 

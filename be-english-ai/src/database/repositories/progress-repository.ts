@@ -43,6 +43,18 @@ export interface ExamCompletionSummaryRow {
   averageScore: number;
 }
 
+export interface ExerciseXpSummaryRow {
+  totalExercises: number;
+  passedExercises: number;
+  totalMinutes: number;
+}
+
+export interface ExamXpSummaryRow {
+  totalExams: number;
+  passedExams: number;
+  totalMinutes: number;
+}
+
 export interface ExamPartAggregateRow {
   partNumber: number;
   attemptCount: number;
@@ -186,6 +198,50 @@ export class ProgressRepository extends BaseRepository {
       passedExams: 0,
       totalMinutes: 0,
       averageScore: 0,
+    };
+  }
+
+  async getExerciseXpSummary(nguoiDungId: number): Promise<ExerciseXpSummaryRow> {
+    const request = await this.createRequest();
+    this.bindInput(request, "nguoiDungId", sql.Int, nguoiDungId);
+
+    const result = await request.query<ExerciseXpSummaryRow>(`
+      SELECT
+        COUNT(1) AS totalExercises,
+        SUM(CASE WHEN ISNULL(bl.DiemSo, 0) >= 70 THEN 1 ELSE 0 END) AS passedExercises,
+        ISNULL(SUM(ISNULL(bl.ThoiGianLamPhut, 0)), 0) AS totalMinutes
+      FROM dbo.BaiLamBaiTapAI bl
+      WHERE bl.NguoiDungId = @nguoiDungId
+        AND bl.LanThu = 1
+        AND bl.TrangThaiBaiLam IN (N'submitted', N'graded')
+    `);
+
+    return result.recordset[0] ?? {
+      totalExercises: 0,
+      passedExercises: 0,
+      totalMinutes: 0,
+    };
+  }
+
+  async getExamXpSummary(nguoiDungId: number): Promise<ExamXpSummaryRow> {
+    const request = await this.createRequest();
+    this.bindInput(request, "nguoiDungId", sql.Int, nguoiDungId);
+
+    const result = await request.query<ExamXpSummaryRow>(`
+      SELECT
+        COUNT(1) AS totalExams,
+        SUM(CASE WHEN ISNULL(bl.DiemSo, 0) >= 70 THEN 1 ELSE 0 END) AS passedExams,
+        ISNULL(SUM(ISNULL(bl.ThoiGianLamPhut, 0)), 0) AS totalMinutes
+      FROM dbo.BaiLamDeThiAI bl
+      WHERE bl.NguoiDungId = @nguoiDungId
+        AND bl.LanThu = 1
+        AND bl.TrangThaiBaiLam IN (N'submitted', N'graded')
+    `);
+
+    return result.recordset[0] ?? {
+      totalExams: 0,
+      passedExams: 0,
+      totalMinutes: 0,
     };
   }
 

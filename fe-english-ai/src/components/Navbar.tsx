@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Book, GraduationCap, MessageCircle, User, Sun, Moon, Globe, Settings, LogOut, UserCircle, FileText, Trophy, TrendingUp, ChevronDown, Camera, Loader2 } from 'lucide-react';
+import { Book, GraduationCap, MessageCircle, User, Sun, Moon, Globe, Settings, LogOut, UserCircle, FileText, Trophy, TrendingUp, ChevronDown, Camera, Loader2, Compass } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from './ThemeProvider';
 import { Button } from './ui/button';
@@ -85,6 +85,7 @@ const Navbar = () => {
   const navItems = [
     { name: 'Bảng xếp hạng', path: '/leaderboard', icon: Trophy, color: 'text-yellow-600' },
     { name: 'Tiến độ', path: '/progress', icon: TrendingUp, color: 'text-blue-600' },
+    { name: 'Lộ trình', path: '/roadmap', icon: Compass, color: 'text-indigo-600' },
     { name: 'AI Chat', path: '/chat', icon: MessageCircle, color: 'text-rose-600' },
     { name: 'Từ điển', path: '/dictionary', icon: Book, color: 'text-pink-600' },
     { 

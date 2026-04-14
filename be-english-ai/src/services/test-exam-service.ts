@@ -1631,6 +1631,11 @@ export async function submitTestExamResult(input: SubmitTestExamInput): Promise<
       };
     });
 
+  const standardFullPartNumbers = [1, 2, 3, 4, 5, 6, 7];
+  const readyPartNumbers = new Set(readyParts.map((part) => Number(part.partNumber)));
+  const hasAllSevenPartsReady = standardFullPartNumbers.every((partNumber) => readyPartNumbers.has(partNumber));
+  const isSevenPartExam = Number(detail.generation.totalParts) === 7;
+
   const completedAt = input.completedAt ? new Date(input.completedAt) : new Date();
   const validCompletedAt = Number.isNaN(completedAt.getTime()) ? new Date() : completedAt;
   const levelEstimate = inferAiLevelByScore(score);
@@ -1683,6 +1688,13 @@ export async function submitTestExamResult(input: SubmitTestExamInput): Promise<
       trangThaiBaiLam: "graded",
     });
     completionPersisted = completion.persisted;
+
+    if (completion.persisted && isSevenPartExam && hasAllSevenPartsReady) {
+      await testExamRepository.updateNguoiDungLevelByNguoiDungId({
+        nguoiDungId,
+        level: levelEstimate,
+      });
+    }
 
     const attendanceMinutes = Number.isFinite(Number(input.durationMinutes))
       ? Math.max(1, Math.trunc(Number(input.durationMinutes)))

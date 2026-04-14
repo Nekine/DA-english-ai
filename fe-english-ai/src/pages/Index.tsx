@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -22,6 +22,7 @@ import {
 import MainLayout from '@/layouts/MainLayout';
 import { useAuth0Integration } from '@/hooks/useAuth0Integration';
 import { useDatabaseLeaderboard } from '@/hooks/useDatabaseStats';
+import { useLearningInsightsProfile } from '@/hooks/useLearningInsights';
 import { useAuth } from '@/components/AuthContext';
 import { apiService } from '@/services/api';
 
@@ -49,6 +50,14 @@ const quickActions = [
     path: '/progress',
     accent: 'from-sky-500/20 via-cyan-500/10 to-transparent',
     tone: 'text-sky-600',
+  },
+  {
+    title: 'Lộ trình học',
+    description: 'Xem kế hoạch cá nhân hóa theo điểm yếu và trình độ hiện tại.',
+    icon: Sparkles,
+    path: '/roadmap',
+    accent: 'from-violet-500/20 via-indigo-500/10 to-transparent',
+    tone: 'text-indigo-600',
   },
 ];
 
@@ -114,6 +123,7 @@ const Index = () => {
   const { user } = useAuth();
 
   const leaderboardQuery = useDatabaseLeaderboard('weekly', 5);
+  const learningProfileQuery = useLearningInsightsProfile(Boolean(user));
   const leaderboardData = leaderboardQuery.data ?? [];
   const topLearners = leaderboardData.slice(0, 5);
 
@@ -124,10 +134,56 @@ const Index = () => {
     },
     enabled: Boolean(user),
     staleTime: 60_000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
+
+  useEffect(() => {
+    if (!user?.userId) {
+      return;
+    }
+
+    void leaderboardQuery.refetch();
+    void attendanceSummaryQuery.refetch();
+    void learningProfileQuery.refetch();
+  }, [user?.userId]);
 
   const attendanceStars = attendanceSummaryQuery.data?.summary.totalStars ?? 0;
   const attendanceStreak = attendanceSummaryQuery.data?.summary.currentStreak ?? 0;
+
+  const roadmapCardItems = useMemo(() => {
+    const firstStage = learningProfileQuery.data?.roadmap?.duLieu.giaiDoan?.[0];
+
+    if (!firstStage || !Array.isArray(firstStage.hoatDong) || firstStage.hoatDong.length === 0) {
+      return [
+        {
+          title: 'Luyện nghe B1',
+          badge: 'Hôm nay',
+          badgeClass: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-200',
+          description: '3 đoạn hội thoại, 15 câu hỏi kèm giải thích.',
+        },
+        {
+          title: 'Shadowing speaking',
+          badge: '15 phút',
+          badgeClass: 'bg-blue-100 text-blue-600 dark:bg-blue-500/20 dark:text-blue-200',
+          description: 'Phân tích phát âm & nhịp nói theo đoạn mẫu.',
+        },
+      ];
+    }
+
+    return firstStage.hoatDong.slice(0, 2).map((activity, index) => ({
+      title: `${activity.kyNang}`,
+      badge: index === 0 ? 'Ưu tiên' : activity.tanSuat,
+      badgeClass: index === 0
+        ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-200'
+        : 'bg-blue-100 text-blue-600 dark:bg-blue-500/20 dark:text-blue-200',
+      description: `${activity.moTa} (${activity.thoiLuongPhut} phút)`,
+    }));
+  }, [learningProfileQuery.data?.roadmap?.duLieu.giaiDoan]);
+
+  const roadmapSummaryText = learningProfileQuery.data?.roadmap?.duLieu.mucTieuTongQuat
+    ?? 'Lộ trình sẽ tự cập nhật từ kết quả làm bài lần đầu và điểm yếu mới nhất của bạn.';
 
   const leaderboardContent = leaderboardQuery.isLoading ? (
     <p className="text-sm text-slate-500">Đang tải dữ liệu...</p>
@@ -193,7 +249,7 @@ const Index = () => {
                   <ChevronDown className="h-4 w-4" />
                 </button>
                 <Link
-                  to="/progress"
+                  to="/roadmap"
                   className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white/70 px-6 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-white dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200"
                 >
                   Xem lộ trình học
@@ -234,28 +290,30 @@ const Index = () => {
                   </div>
                 </div>
                 <div className="mt-6 space-y-4">
-                  <div className="rounded-2xl border border-slate-200/70 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Luyện nghe B1</p>
-                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-200">
-                        Hôm nay
-                      </span>
+                  {roadmapCardItems.map((item) => (
+                    <div
+                      key={`${item.title}-${item.badge}`}
+                      className="rounded-2xl border border-slate-200/70 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/60"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{item.title}</p>
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${item.badgeClass}`}>
+                          {item.badge}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{item.description}</p>
                     </div>
-                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                      3 đoạn hội thoại, 15 câu hỏi kèm giải thích.
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-slate-200/70 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Shadowing speaking</p>
-                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-600 dark:bg-blue-500/20 dark:text-blue-200">
-                        15 phút
-                      </span>
-                    </div>
-                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                      Phân tích phát âm & nhịp nói theo đoạn mẫu.
-                    </p>
-                  </div>
+                  ))}
+
+                  <p className="text-xs text-slate-500 dark:text-slate-300">{roadmapSummaryText}</p>
+
+                  <Link
+                    to="/roadmap"
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200"
+                  >
+                    Mở trang lộ trình
+                    <ChevronRight className="h-4 w-4" />
+                  </Link>
                 </div>
               </div>
 
@@ -373,7 +431,7 @@ const Index = () => {
               </p>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               {quickActions.map((item) => (
                 <Link
                   key={item.title}

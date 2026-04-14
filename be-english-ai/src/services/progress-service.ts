@@ -354,6 +354,8 @@ async function buildProgressByNguoiDungId(
   const [
     exerciseSummary,
     examSummary,
+    exerciseXpSummary,
+    examXpSummary,
     exerciseTypeAggregates,
     examPartAggregates,
     activities,
@@ -362,6 +364,8 @@ async function buildProgressByNguoiDungId(
   ] = await Promise.all([
     progressRepository.getExerciseCompletionSummary(seed.nguoiDungId),
     progressRepository.getExamCompletionSummary(seed.nguoiDungId),
+    progressRepository.getExerciseXpSummary(seed.nguoiDungId),
+    progressRepository.getExamXpSummary(seed.nguoiDungId),
     progressRepository.getExerciseTypeAggregates(seed.nguoiDungId),
     progressRepository.getExamPartAggregates(seed.nguoiDungId),
     progressRepository.getRecentActivities(seed.nguoiDungId, 20),
@@ -456,13 +460,20 @@ async function buildProgressByNguoiDungId(
   const tongBaiDaLamTong = totalExercises + totalExams;
   const tongBaiKhongDat = Math.max(0, tongBaiDaLamTong - tongBaiDat);
   const tongPhutHoc = (Number(exerciseSummary.totalMinutes) || 0) + (Number(examSummary.totalMinutes) || 0);
+
+  // XP for exercises/exams is awarded only on first attempts (LanThu = 1).
+  const xpExerciseCount = Number(exerciseXpSummary.totalExercises) || 0;
+  const xpExamCount = Number(examXpSummary.totalExams) || 0;
+  const xpPassedCount = (Number(exerciseXpSummary.passedExercises) || 0) + (Number(examXpSummary.passedExams) || 0);
+  const xpMinutes = (Number(exerciseXpSummary.totalMinutes) || 0) + (Number(examXpSummary.totalMinutes) || 0);
+
   const derivedXp = Math.max(
     0,
     Math.round(
-      totalExercises * 12
-      + totalExams * 40
-      + tongBaiDat * 8
-      + tongPhutHoc * 0.5,
+      xpExerciseCount * 12
+      + xpExamCount * 40
+      + xpPassedCount * 8
+      + xpMinutes * 0.5,
     ),
   );
   const tongXP = Math.max(Number(seed.tongXP) || 0, derivedXp);

@@ -58,7 +58,33 @@ export type LearningRoadmapRow = {
   ngayCapNhat: Date;
 };
 
+type RoadmapIdentityRow = {
+  loTrinhHocTapAIId: number;
+};
+
+type UserLevelRow = {
+  currentLevel: string | null;
+};
+
 export class LearningInsightsRepository extends BaseRepository {
+  async getCurrentUserLevel(nguoiDungId: number): Promise<string | null> {
+    const request = await this.createRequest();
+    this.bindInput(request, "nguoiDungId", sql.Int, nguoiDungId);
+
+    const result = await request.query<UserLevelRow>(`
+      SELECT TOP (1)
+        COALESCE(
+          NULLIF(LTRIM(RTRIM(nd.TrinhDoHienTai)), N''),
+          NULLIF(LTRIM(RTRIM(td.CapDoHienTai)), N'')
+        ) AS currentLevel
+      FROM dbo.NguoiDung nd
+      LEFT JOIN dbo.TienDoHocTap td ON td.NguoiDungId = nd.NguoiDungId
+      WHERE nd.NguoiDungId = @nguoiDungId
+    `);
+
+    return result.recordset[0]?.currentLevel ?? null;
+  }
+
   async listExercisePerformanceAggregates(
     nguoiDungId: number,
     withinDays = 90,
@@ -301,6 +327,69 @@ export class LearningInsightsRepository extends BaseRepository {
     `);
 
     return result.recordset[0] ?? null;
+  }
+
+  async upsertRoadmapForNguoiDungId(input: {
+    nguoiDungId: number;
+    tenLoTrinh: string;
+    duLieuJson: string;
+  }): Promise<number> {
+    const request = await this.createRequest();
+    this.bindInput(request, "nguoiDungId", sql.Int, input.nguoiDungId);
+    this.bindInput(request, "tenLoTrinh", sql.NVarChar(200), input.tenLoTrinh);
+    this.bindInput(request, "duLieuJson", sql.NVarChar(sql.MAX), input.duLieuJson);
+
+    const result = await request.query<RoadmapIdentityRow>(`
+      DECLARE @selectedId INT;
+
+      SELECT TOP (1)
+        @selectedId = lt.LoTrinhHocTapAIId
+      FROM dbo.LoTrinhHocTapAI lt
+      WHERE lt.NguoiDungId = @nguoiDungId
+      ORDER BY lt.NgayCapNhat DESC, lt.NgayTao DESC;
+
+      IF @selectedId IS NULL
+      BEGIN
+        INSERT INTO dbo.LoTrinhHocTapAI (
+          NguoiDungId,
+          TenLoTrinh,
+          DuLieuJson,
+          TrangThai,
+          NgayCapNhat
+        )
+        VALUES (
+          @nguoiDungId,
+          @tenLoTrinh,
+          @duLieuJson,
+          N'active',
+          SYSDATETIME()
+        );
+
+        SET @selectedId = SCOPE_IDENTITY();
+      END
+      ELSE
+      BEGIN
+        UPDATE dbo.LoTrinhHocTapAI
+        SET
+          TenLoTrinh = @tenLoTrinh,
+          DuLieuJson = @duLieuJson,
+          TrangThai = N'active',
+          NgayCapNhat = SYSDATETIME()
+        WHERE LoTrinhHocTapAIId = @selectedId;
+      END
+
+      UPDATE dbo.LoTrinhHocTapAI
+      SET
+        TrangThai = N'archived',
+        NgayCapNhat = SYSDATETIME()
+      WHERE NguoiDungId = @nguoiDungId
+        AND LoTrinhHocTapAIId <> @selectedId
+        AND TrangThai = N'active';
+
+      SELECT @selectedId AS loTrinhHocTapAIId;
+    `);
+
+    return result.recordset[0]?.loTrinhHocTapAIId ?? 0;
   }
 }
 

@@ -36,6 +36,7 @@ type LearningRoadmapPayload = {
 
 type LearningProfileResult = {
   generatedAt: string;
+  currentLevel: string | null;
   insightPolicy: {
     firstAttemptOnly: boolean;
     minAttemptsForWeakness: number;
@@ -86,12 +87,65 @@ type PerformanceSummary = {
 
 const LEARNING_ROADMAP_PROMPT_FILE = "learning-roadmap.system.prompt.txt";
 const MAX_WEAKNESSES = 12;
-const MIN_ATTEMPTS_FOR_WEAKNESS = 2;
+const MIN_ATTEMPTS_FOR_WEAKNESS = 1;
 const ACTIVE_WEAKNESS_THRESHOLD = 78;
 const RESOLVED_WEAKNESS_THRESHOLD = 82;
-const ROADMAP_MIN_UPDATE_INTERVAL_DAYS = 7;
+const ROADMAP_MIN_UPDATE_INTERVAL_DAYS = 0;
 const ROADMAP_FORCE_UPDATE_INTERVAL_DAYS = 21;
 const inFlightRefreshes = new Map<number, Promise<void>>();
+
+const CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"] as const;
+type CefrLevel = (typeof CEFR_LEVELS)[number];
+
+function normalizeCefrLevel(value: string | null | undefined): CefrLevel | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim().toUpperCase();
+  if ((CEFR_LEVELS as readonly string[]).includes(normalized)) {
+    return normalized as CefrLevel;
+  }
+
+  return null;
+}
+
+function toLevelBand(level: CefrLevel | null): "foundation" | "intermediate" | "advanced" | "unknown" {
+  if (!level) {
+    return "unknown";
+  }
+
+  if (level === "A1" || level === "A2") {
+    return "foundation";
+  }
+
+  if (level === "B1" || level === "B2") {
+    return "intermediate";
+  }
+
+  return "advanced";
+}
+
+function getLevelTargetLabel(level: CefrLevel | null): string {
+  if (!level) {
+    return "mức phù hợp với năng lực hiện tại";
+  }
+
+  switch (level) {
+    case "A1":
+      return "A2";
+    case "A2":
+      return "B1";
+    case "B1":
+      return "B2";
+    case "B2":
+      return "C1";
+    case "C1":
+      return "C2";
+    default:
+      return "C2";
+  }
+}
 
 type RefreshLearningInsightsOptions = {
   forceRoadmapRefresh?: boolean;
@@ -563,6 +617,10 @@ function shouldRegenerateRoadmap(input: {
     return true;
   }
 
+  if (hasMeaningfulWeaknessChange(input.previousWeaknesses, input.nextWeaknesses)) {
+    return true;
+  }
+
   const elapsedMs = Date.now() - input.activeRoadmapUpdatedAt.getTime();
   const elapsedDays = elapsedMs / (24 * 60 * 60 * 1000);
 
@@ -570,11 +628,7 @@ function shouldRegenerateRoadmap(input: {
     return true;
   }
 
-  if (elapsedDays < ROADMAP_MIN_UPDATE_INTERVAL_DAYS) {
-    return false;
-  }
-
-  return hasMeaningfulWeaknessChange(input.previousWeaknesses, input.nextWeaknesses);
+  return false;
 }
 
 function buildRoadmapPolicyMeta(activeRoadmapUpdatedAt: Date | null) {
@@ -603,10 +657,28 @@ function buildRoadmapPolicyMeta(activeRoadmapUpdatedAt: Date | null) {
   };
 }
 
-function toFallbackRoadmap(weaknesses: UserWeaknessInput[], summary: PerformanceSummary): LearningRoadmapPayload {
+function estimateWeeklyDuration(level: CefrLevel | null, weaknessCount: number): number {
+  const band = toLevelBand(level);
+  const base = band === "advanced" ? 3 : band === "intermediate" ? 4 : 5;
+  const extra = weaknessCount >= 5 ? 1 : 0;
+  return clamp(base + extra, 2, 8);
+}
+
+function toFallbackRoadmap(
+  weaknesses: UserWeaknessInput[],
+  summary: PerformanceSummary,
+  currentLevelRaw: string | null,
+): LearningRoadmapPayload {
+  const currentLevel = normalizeCefrLevel(currentLevelRaw);
+  const nextTarget = getLevelTargetLabel(currentLevel);
   const prioritized = weaknesses.slice(0, 3);
   const prioritySkills = prioritized.map((item) => item.khaNang);
   const focusSkills = prioritySkills.length > 0 ? prioritySkills.join(", ") : "General";
+  const weeklyDuration = estimateWeeklyDuration(currentLevel, weaknesses.length);
+
+  const objectivePrefix = currentLevel
+    ? `Ổn định năng lực ${currentLevel} và từng bước hướng tới ${nextTarget}`
+    : "Củng cố nền tảng hiện tại";
 
   const stage1Activities: RoadmapActivity[] = [
     {
@@ -642,9 +714,9 @@ function toFallbackRoadmap(weaknesses: UserWeaknessInput[], summary: Performance
     tenLoTrinh: "Lộ trình cải thiện điểm yếu cá nhân",
     mucTieuTongQuat:
       summary.averageScore < 70
-        ? `Nâng điểm trung bình từ ${summary.averageScore}% lên ít nhất 75% bằng cách tập trung vào ${focusSkills}.`
-        : `Ổn định và nâng cao độ chính xác lên trên 85% với trọng tâm ${focusSkills}.`,
-    thoiLuongTuan: 4,
+        ? `${objectivePrefix}, nâng điểm trung bình từ ${summary.averageScore}% lên tối thiểu 75% với trọng tâm ${focusSkills}.`
+        : `${objectivePrefix}, duy trì độ chính xác trên 85% với trọng tâm ${focusSkills}.`,
+    thoiLuongTuan: weeklyDuration,
     giaiDoan: [
       {
         ten: "Giai đoạn 1: Củng cố nền tảng",
@@ -761,8 +833,10 @@ function parseRoadmapFromUnknown(raw: unknown, fallback: LearningRoadmapPayload)
 async function generateRoadmapPayload(
   weaknesses: UserWeaknessInput[],
   summary: PerformanceSummary,
+  currentLevelRaw: string | null,
 ): Promise<LearningRoadmapPayload> {
-  const fallback = toFallbackRoadmap(weaknesses, summary);
+  const currentLevel = normalizeCefrLevel(currentLevelRaw);
+  const fallback = toFallbackRoadmap(weaknesses, summary, currentLevel);
 
   if (!appConfig.db.enabled) {
     return fallback;
@@ -771,6 +845,9 @@ async function generateRoadmapPayload(
   const systemPrompt = loadPromptTemplate(LEARNING_ROADMAP_PROMPT_FILE);
   const userPrompt = JSON.stringify(
     {
+      currentLevel,
+      currentLevelBand: toLevelBand(currentLevel),
+      nextTargetLevel: getLevelTargetLabel(currentLevel),
       userPerformance: {
         recentAttemptCount: summary.recentAttemptCount,
         averageScore: summary.averageScore,
@@ -811,11 +888,12 @@ async function refreshForNguoiDungId(
   nguoiDungId: number,
   options: RefreshLearningInsightsOptions,
 ): Promise<void> {
-  const [previousWeaknesses, activeRoadmap, exerciseAggregates, examRows] = await Promise.all([
+  const [previousWeaknesses, activeRoadmap, exerciseAggregates, examRows, currentLevel] = await Promise.all([
     learningInsightsRepository.listUserWeaknesses(nguoiDungId, MAX_WEAKNESSES),
     learningInsightsRepository.getActiveRoadmap(nguoiDungId),
     learningInsightsRepository.listExercisePerformanceAggregates(nguoiDungId, 120),
     learningInsightsRepository.listRecentExamCompletions(nguoiDungId, 30),
+    learningInsightsRepository.getCurrentUserLevel(nguoiDungId),
   ]);
 
   const exerciseWeaknesses = exerciseAggregates
@@ -848,15 +926,13 @@ async function refreshForNguoiDungId(
   }
 
   const summary = summarizePerformance(exerciseAggregates, examRows.map((row) => ({ diemSo: row.diemSo })));
-  const roadmapPayload = await generateRoadmapPayload(mergedWeaknesses, summary);
+  const roadmapPayload = await generateRoadmapPayload(mergedWeaknesses, summary, currentLevel);
 
-  await learningInsightsRepository.archiveActiveRoadmaps(nguoiDungId);
   const roadmapTitle = toNonEmptyString(roadmapPayload.tenLoTrinh, "Lộ trình học tập cá nhân").slice(0, 200);
-  await learningInsightsRepository.createRoadmap({
+  await learningInsightsRepository.upsertRoadmapForNguoiDungId({
     nguoiDungId,
     tenLoTrinh: roadmapTitle,
     duLieuJson: JSON.stringify(roadmapPayload),
-    trangThai: "active",
   });
 }
 
@@ -941,6 +1017,7 @@ export async function getLearningProfileByTaiKhoanId(
   if (!appConfig.db.enabled) {
     return {
       generatedAt: new Date().toISOString(),
+      currentLevel: null,
       insightPolicy: {
         firstAttemptOnly: true,
         minAttemptsForWeakness: MIN_ATTEMPTS_FOR_WEAKNESS,
@@ -965,15 +1042,17 @@ export async function getLearningProfileByTaiKhoanId(
     return null;
   }
 
-  const [weaknesses, activeRoadmap] = await Promise.all([
+  const [weaknesses, activeRoadmap, currentLevel] = await Promise.all([
     learningInsightsRepository.listUserWeaknesses(nguoiDungId, MAX_WEAKNESSES),
     learningInsightsRepository.getActiveRoadmap(nguoiDungId),
+    learningInsightsRepository.getCurrentUserLevel(nguoiDungId),
   ]);
 
   const parsedRoadmap = parseJson<LearningRoadmapPayload>(activeRoadmap?.duLieuJson);
 
   return {
     generatedAt: new Date().toISOString(),
+    currentLevel,
     insightPolicy: {
       firstAttemptOnly: true,
       minAttemptsForWeakness: MIN_ATTEMPTS_FOR_WEAKNESS,
@@ -1001,6 +1080,7 @@ export async function refreshLearningProfileByTaiKhoanId(
   if (!appConfig.db.enabled) {
     return {
       generatedAt: new Date().toISOString(),
+      currentLevel: null,
       insightPolicy: {
         firstAttemptOnly: true,
         minAttemptsForWeakness: MIN_ATTEMPTS_FOR_WEAKNESS,
