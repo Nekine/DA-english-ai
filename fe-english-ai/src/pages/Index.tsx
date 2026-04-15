@@ -250,6 +250,7 @@ const Index = () => {
                 </button>
                 <Link
                   to="/roadmap"
+                  state={{ scrollToTop: true }}
                   className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white/70 px-6 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-white dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200"
                 >
                   Xem lộ trình học
@@ -309,6 +310,7 @@ const Index = () => {
 
                   <Link
                     to="/roadmap"
+                    state={{ scrollToTop: true }}
                     className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200"
                   >
                     Mở trang lộ trình
@@ -436,6 +438,7 @@ const Index = () => {
                 <Link
                   key={item.title}
                   to={item.path}
+                  state={item.path === '/progress' || item.path === '/roadmap' ? { scrollToTop: true } : undefined}
                   className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900/70"
                 >
                   <div className={`absolute inset-0 bg-gradient-to-br ${item.accent}`} />

@@ -80,7 +80,7 @@ const ORDER_BY_MAP: Record<string, string> = {
   fullname: "u.full_name",
   email: "u.email",
   totalxp: "u.total_xp",
-  createdat: "u.created_at",
+  createdat: "nd.NgayTao",
 };
 
 export class UserManagementRepository extends BaseRepository {
@@ -98,7 +98,7 @@ export class UserManagementRepository extends BaseRepository {
   }
 
   async getUsers(input: UserManagementListInput): Promise<{ rows: UserManagementListRow[]; totalCount: number }> {
-    const whereParts: string[] = [];
+    const whereParts: string[] = ["nd.NgayTao IS NOT NULL"];
 
     if (input.search) {
       whereParts.push("(u.username LIKE @search OR u.full_name LIKE @search OR u.email LIKE @search)");
@@ -126,6 +126,11 @@ export class UserManagementRepository extends BaseRepository {
     const countResult = await countRequest.query<{ totalCount: number }>(`
       SELECT COUNT(1) AS totalCount
       FROM dbo.users u
+      LEFT JOIN dbo.TaiKhoan tk
+        ON tk.TaiKhoanId = TRY_CAST(u.id AS INT)
+        OR tk.TenDangNhap = u.username
+        OR (tk.Email IS NOT NULL AND u.email IS NOT NULL AND tk.Email = u.email)
+      LEFT JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
       ${whereClause}
     `);
 
@@ -161,7 +166,7 @@ export class UserManagementRepository extends BaseRepository {
         u.username AS Username,
         ISNULL(u.full_name, u.username) AS FullName,
         u.email AS Email,
-        u.created_at AS CreatedAt,
+        nd.NgayTao AS CreatedAt,
         u.last_active_at AS LastLoginAt,
         CASE WHEN u.status = N'active' THEN N'Active' ELSE N'Inactive' END AS Status,
         u.total_xp AS TotalXP,
@@ -170,6 +175,11 @@ export class UserManagementRepository extends BaseRepository {
         ISNULL(ca.totalExercisesCompleted, 0) AS TotalExercisesCompleted,
         ISNULL(ca.averageScore, 0) AS AverageScore
       FROM dbo.users u
+      LEFT JOIN dbo.TaiKhoan tk
+        ON tk.TaiKhoanId = TRY_CAST(u.id AS INT)
+        OR tk.TenDangNhap = u.username
+        OR (tk.Email IS NOT NULL AND u.email IS NOT NULL AND tk.Email = u.email)
+      LEFT JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
       LEFT JOIN completion_agg ca ON ca.user_id = u.id
       ${whereClause}
       ORDER BY ${orderByColumn} ${orderDirection}
@@ -189,13 +199,19 @@ export class UserManagementRepository extends BaseRepository {
         u.username AS Username,
         ISNULL(u.full_name, u.username) AS FullName,
         u.email AS Email,
-        u.created_at AS CreatedAt,
+        nd.NgayTao AS CreatedAt,
         u.last_active_at AS LastLoginAt,
         CASE WHEN u.status = N'active' THEN N'Active' ELSE N'Inactive' END AS Status,
         u.total_xp AS TotalXP,
         NULL AS PreferredLevel
       FROM dbo.users u
+      LEFT JOIN dbo.TaiKhoan tk
+        ON tk.TaiKhoanId = TRY_CAST(u.id AS INT)
+        OR tk.TenDangNhap = u.username
+        OR (tk.Email IS NOT NULL AND u.email IS NOT NULL AND tk.Email = u.email)
+      LEFT JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
       WHERE u.id = @userId
+        AND nd.NgayTao IS NOT NULL
     `);
 
     return result.recordset[0] ?? null;

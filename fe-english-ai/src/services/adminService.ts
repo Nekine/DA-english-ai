@@ -307,7 +307,13 @@ class AdminService {
       email: raw.email ?? raw.Email ?? "",
       level: Number(raw.level ?? raw.Level ?? 0),
       totalXp,
-      joinedDate: raw.joinedDate ?? raw.CreatedAt ?? new Date().toISOString(),
+      joinedDate:
+        raw.joinedDate ??
+        raw.JoinedDate ??
+        raw.createdAt ??
+        raw.CreatedAt ??
+        raw.created_at ??
+        new Date().toISOString(),
       lastActivity: raw.lastActivity ?? raw.LastLoginAt ?? new Date().toISOString(),
       status: (raw.status ?? raw.Status ?? "Active") as AdminUser["status"],
       exercisesCompleted: Number(raw.exercisesCompleted ?? raw.TotalExercisesCompleted ?? 0),

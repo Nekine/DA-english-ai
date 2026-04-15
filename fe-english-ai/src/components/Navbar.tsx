@@ -537,9 +537,7 @@ const Navbar = () => {
                   </Sheet>
 
                   {/* Admin access - chỉ hiển thị cho admin */}
-                  {(user.role === 'admin' || 
-                    user.role === 'super_admin' ||
-                    user.email?.includes('admin')) && (
+                  {user.role === 'admin' && (
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={() => navigate('/admin')}>

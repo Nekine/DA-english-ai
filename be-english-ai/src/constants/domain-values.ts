@@ -1,6 +1,6 @@
 export const USER_STATUSES = ["active", "inactive", "banned"] as const;
 export const ACCOUNT_TYPES = ["free", "premium"] as const;
-export const USER_ROLES = ["user", "admin", "customer"] as const;
+export const USER_ROLES = ["admin", "customer"] as const;
 
 export const USER_STATUS = {
   ACTIVE: "active",
@@ -14,7 +14,6 @@ export const ACCOUNT_TYPE = {
 } as const;
 
 export const USER_ROLE = {
-  USER: "user",
   ADMIN: "admin",
   CUSTOMER: "customer",
 } as const;

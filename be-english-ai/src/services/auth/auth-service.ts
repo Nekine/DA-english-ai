@@ -43,7 +43,7 @@ function toAuthResponseUser(input: {
   fullName: string | null;
   avatar: string | null;
   currentLevel: "A1" | "A2" | "B1" | "B2" | "C1" | "C2" | null;
-  role: "user" | "admin" | "customer";
+  role: "admin" | "customer";
   status: "active" | "inactive" | "banned";
   accountType: "free" | "premium";
   premiumExpiresAt: Date | string | null;

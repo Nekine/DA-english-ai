@@ -80,6 +80,22 @@ CREATE TABLE dbo.TaiKhoan (
 );
 GO
 
+ALTER TABLE dbo.TaiKhoan
+ADD VaiTro NVARCHAR(20) NOT NULL 
+    CONSTRAINT DF_TaiKhoan_VaiTro DEFAULT N'customer';
+GO
+
+ALTER TABLE dbo.TaiKhoan
+ADD CONSTRAINT CK_TaiKhoan_VaiTro
+CHECK (VaiTro IN (N'customer', N'admin'));
+GO
+
+UPDATE dbo.TaiKhoan
+SET VaiTro = N'admin'
+WHERE TaiKhoanId = 1;
+
+
+
 select * from dbo.TaiKhoan
 select * from dbo.NguoiDung
 select * from dbo.LichSuTrangThaiTaiKhoan
@@ -284,7 +300,10 @@ select * from dbo.DeThiAI
 
 select * from dbo.BaiLamBaiTapAI
 select * from dbo.BaiTapAI
+
+select * from dbo.LoTrinhHocTapAI
 select * from dbo.DiemYeuNguoiDung
+select * from dbo.DiemDanhNgay
 
 /* =========================================================
    7) ĐIỂM YẾU NGƯỜI DÙNG

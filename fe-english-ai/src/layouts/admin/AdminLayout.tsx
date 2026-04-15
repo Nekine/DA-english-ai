@@ -51,7 +51,7 @@ const AdminLayout = () => {
       current: location.pathname === '/admin'
     },
     {
-      name: 'Up đề',
+      name: 'Bài tập và đề thi',
       href: '/admin/upload',
       icon: Upload,
       current: location.pathname === '/admin/upload'

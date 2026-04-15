@@ -36,12 +36,12 @@ import Pricing from "./pages/Pricing";
 // Admin imports
 import AdminLayout from "./layouts/admin/AdminLayout.tsx";
 import AdminProtectedRoute from "./components/admin/AdminProtectedRoute";
-import AdminDashboard from "./pages/admin/Dashboard";
+import AdminDashboard from "./pages/admin/Dashboard.tsx";
 import UserManagement from "./pages/admin/UserManagement";
 import ContentManagement from "./pages/admin/ContentManagement";
 import AdminSettings from "./pages/admin/Settings";
 import TestsPage from "./pages/admin/TestsPage";
-import UploadPage from "./pages/admin/UploadPage";
+import UploadPage from "./pages/admin/UploadPage.tsx";
 import AccountPage from "./pages/admin/AccountPage";
 import ProfilePage from "./pages/admin/ProfilePage";
 import RevenuePage from "./pages/admin/Revenue";

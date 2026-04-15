@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLearningInsightsProfile, useRefreshLearningInsights } from "@/hooks/useLearningInsights";
 import { ArrowLeft, BarChart3, CalendarClock, Compass, ListChecks, RefreshCw, Sparkles } from "lucide-react";
-import { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 function getPriorityVariant(priority: number): "destructive" | "secondary" | "default" {
   if (priority >= 4) {
@@ -35,6 +35,7 @@ function formatDateTime(value?: string | null): string {
 
 export default function Roadmap() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
 
   const profileQuery = useLearningInsightsProfile(Boolean(user));
@@ -57,6 +58,13 @@ export default function Roadmap() {
       updatedAt: profile?.roadmap?.ngayCapNhat ?? profile?.generatedAt ?? null,
     };
   }, [profile?.weaknesses?.length, roadmapStages.length, profile?.roadmap?.duLieu.thoiLuongTuan, profile?.roadmap?.ngayCapNhat, profile?.generatedAt]);
+
+  useEffect(() => {
+    const state = location.state as { scrollToTop?: boolean } | null;
+    if (state?.scrollToTop) {
+      window.scrollTo({ top: 0, behavior: "auto" });
+    }
+  }, [location.key]);
 
   return (
     <div className="min-h-screen bg-gradient-soft">

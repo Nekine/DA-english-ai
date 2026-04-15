@@ -6,6 +6,47 @@ function toIsoOrNow(value: Date | null): string {
   return value ? value.toISOString() : new Date().toISOString();
 }
 
+export interface AdminContentSummaryDto {
+  totalExercises: number;
+  totalTests: number;
+  exercisesCreated: {
+    today: number;
+    week: number;
+    month: number;
+  };
+  testsCreated: {
+    today: number;
+    week: number;
+    month: number;
+  };
+}
+
+export interface AdminExerciseItemDto {
+  id: number;
+  title: string;
+  exerciseType: string;
+  partType: string;
+  level: string;
+  status: string;
+  creatorUsername: string;
+  createdAt: string;
+  questionCount: number;
+  attemptCount: number;
+}
+
+export interface AdminTestItemDto {
+  id: number;
+  title: string;
+  examType: string;
+  totalParts: number;
+  totalQuestions: number;
+  durationMinutes: number;
+  status: string;
+  creatorUsername: string;
+  createdAt: string;
+  attemptCount: number;
+}
+
 export async function getDashboard() {
   const startedAt = Date.now();
 
@@ -57,6 +98,67 @@ export async function getDashboard() {
     systemHealth,
     message: "Dashboard data (Activities temporarily disabled due to JSON serialization issues)",
   };
+}
+
+export async function getAdminContentSummary(): Promise<AdminContentSummaryDto> {
+  const row = await adminRepository.getContentSummary();
+
+  return {
+    totalExercises: Number(row.totalExercises || 0),
+    totalTests: Number(row.totalTests || 0),
+    exercisesCreated: {
+      today: Number(row.exercisesCreatedToday || 0),
+      week: Number(row.exercisesCreatedWeek || 0),
+      month: Number(row.exercisesCreatedMonth || 0),
+    },
+    testsCreated: {
+      today: Number(row.testsCreatedToday || 0),
+      week: Number(row.testsCreatedWeek || 0),
+      month: Number(row.testsCreatedMonth || 0),
+    },
+  };
+}
+
+export async function listAdminExercises(): Promise<AdminExerciseItemDto[]> {
+  const rows = await adminRepository.listExercisesForAdmin();
+
+  return rows.map((row) => ({
+    id: row.ExerciseId,
+    title: row.Title,
+    exerciseType: row.ExerciseType,
+    partType: row.PartType,
+    level: row.Level,
+    status: row.Status,
+    creatorUsername: row.CreatorUsername,
+    createdAt: toIsoOrNow(row.CreatedAt),
+    questionCount: Number(row.QuestionCount || 0),
+    attemptCount: Number(row.AttemptCount || 0),
+  }));
+}
+
+export async function listAdminTests(): Promise<AdminTestItemDto[]> {
+  const rows = await adminRepository.listTestsForAdmin();
+
+  return rows.map((row) => ({
+    id: row.TestId,
+    title: row.Title,
+    examType: row.ExamType,
+    totalParts: Number(row.TotalParts || 0),
+    totalQuestions: Number(row.TotalQuestions || 0),
+    durationMinutes: Number(row.DurationMinutes || 0),
+    status: row.Status,
+    creatorUsername: row.CreatorUsername,
+    createdAt: toIsoOrNow(row.CreatedAt),
+    attemptCount: Number(row.AttemptCount || 0),
+  }));
+}
+
+export async function deleteAdminExercise(exerciseId: number): Promise<boolean> {
+  return adminRepository.archiveExerciseById(exerciseId);
+}
+
+export async function deleteAdminTest(testId: number): Promise<boolean> {
+  return adminRepository.archiveTestById(testId);
 }
 
 function safeAverage(values: number[]): number {

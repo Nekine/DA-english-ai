@@ -12,7 +12,7 @@ export interface DbAuthUser {
   fullName: string | null;
   avatarUrl: string | null;
   currentLevel: "A1" | "A2" | "B1" | "B2" | "C1" | "C2" | null;
-  role: "user" | "admin" | "customer";
+  role: "admin" | "customer";
   status: "active" | "inactive" | "banned";
   accountType: "free" | "premium";
   premiumExpiresAt: Date | null;
@@ -24,7 +24,7 @@ export interface RegisterUserInput {
   passwordHash: string;
   fullName: string | null;
   currentLevel: "A1" | "A2" | "B1" | "B2" | "C1" | "C2" | null;
-  role?: "user" | "admin" | "customer";
+  role?: "admin" | "customer";
 }
 
 export interface CreateOAuthUserInput {
@@ -45,7 +45,10 @@ const AUTH_USER_SELECT = `
     nd.HoVaTen AS fullName,
     nd.AnhDaiDienUrl AS avatarUrl,
     nd.TrinhDoHienTai AS currentLevel,
-    N'customer' AS role,
+    CASE
+      WHEN tk.VaiTro = N'admin' THEN N'admin'
+      ELSE N'customer'
+    END AS role,
     tk.TrangThaiTaiKhoan AS status,
     CASE
       WHEN tk.LoaiTaiKhoan = N'basic' THEN N'free'
@@ -154,11 +157,13 @@ export class AuthRepository extends BaseRepository {
 
   async createUser(input: RegisterUserInput): Promise<number> {
     const request = await this.createRequest();
+    const normalizedRole = input.role === "admin" ? "admin" : "customer";
     this.bindInput(request, "username", sql.NVarChar(100), input.username);
     this.bindInput(request, "email", sql.NVarChar(255), input.email);
     this.bindInput(request, "passwordHash", sql.NVarChar(255), input.passwordHash);
     this.bindInput(request, "fullName", sql.NVarChar(100), input.fullName);
     this.bindInput(request, "currentLevel", sql.NVarChar(40), input.currentLevel);
+    this.bindInput(request, "role", sql.NVarChar(20), normalizedRole);
 
     const result = await request.query<{ id: number }>(`
       DECLARE @newAccount TABLE (TaiKhoanId INT);
@@ -169,6 +174,7 @@ export class AuthRepository extends BaseRepository {
         TenDangNhap,
         Email,
         MatKhauHash,
+        VaiTro,
         LoaiTaiKhoan,
         PhuongThucDangNhap,
         MaGoogle,
@@ -181,6 +187,7 @@ export class AuthRepository extends BaseRepository {
         @username,
         @email,
         @passwordHash,
+        @role,
         N'basic',
         N'local',
         @fallbackGoogleId,
@@ -248,6 +255,7 @@ export class AuthRepository extends BaseRepository {
         TenDangNhap,
         Email,
         MatKhauHash,
+        VaiTro,
         LoaiTaiKhoan,
         PhuongThucDangNhap,
         MaGoogle,
@@ -261,6 +269,7 @@ export class AuthRepository extends BaseRepository {
         @username,
         @email,
         @passwordHash,
+        N'customer',
         N'basic',
         ${input.provider === "google" ? "N'google'" : "N'facebook'"},
         COALESCE(@googleId, @fallbackGoogleId),

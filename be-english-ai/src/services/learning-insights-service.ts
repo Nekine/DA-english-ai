@@ -93,6 +93,8 @@ const RESOLVED_WEAKNESS_THRESHOLD = 82;
 const ROADMAP_MIN_UPDATE_INTERVAL_DAYS = 0;
 const ROADMAP_FORCE_UPDATE_INTERVAL_DAYS = 21;
 const inFlightRefreshes = new Map<number, Promise<void>>();
+const scheduledEndOfDayRefreshes = new Map<number, NodeJS.Timeout>();
+const scheduledEndOfDayKeys = new Map<number, string>();
 
 const CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"] as const;
 type CefrLevel = (typeof CEFR_LEVELS)[number];
@@ -169,6 +171,23 @@ function clamp(value: number, min: number, max: number): number {
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function toLocalDateKey(dateValue: Date): string {
+  const year = dateValue.getFullYear();
+  const month = String(dateValue.getMonth() + 1).padStart(2, "0");
+  const day = String(dateValue.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function isSameLocalDate(left: Date, right: Date): boolean {
+  return toLocalDateKey(left) === toLocalDateKey(right);
+}
+
+function getDelayToEndOfDayMs(now: Date): number {
+  const endOfDay = new Date(now);
+  endOfDay.setHours(23, 59, 59, 999);
+  return Math.max(0, endOfDay.getTime() - now.getTime());
 }
 
 function getRecencyWeight(dateValue: Date): number {
@@ -974,13 +993,46 @@ export function triggerLearningInsightsRefresh(input: {
     return;
   }
 
-  void refreshLearningInsightsForNguoiDungId(input.nguoiDungId).catch((error: unknown) => {
-    logger.warn("Learning insights refresh failed", {
-      nguoiDungId: input.nguoiDungId,
-      source: input.source ?? "unknown",
-      message: error instanceof Error ? error.message : String(error),
-    });
-  });
+  const now = new Date();
+  const scheduleKey = toLocalDateKey(now);
+  if (scheduledEndOfDayKeys.get(input.nguoiDungId) === scheduleKey) {
+    return;
+  }
+
+  const existingTimer = scheduledEndOfDayRefreshes.get(input.nguoiDungId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
+  const delayMs = getDelayToEndOfDayMs(now) + 25;
+  const timeoutHandle = setTimeout(() => {
+    scheduledEndOfDayRefreshes.delete(input.nguoiDungId);
+    scheduledEndOfDayKeys.delete(input.nguoiDungId);
+
+    void (async () => {
+      try {
+        const activeRoadmap = await learningInsightsRepository.getActiveRoadmap(input.nguoiDungId);
+        if (activeRoadmap?.ngayCapNhat && isSameLocalDate(activeRoadmap.ngayCapNhat, new Date())) {
+          return;
+        }
+
+        await refreshLearningInsightsForNguoiDungId(input.nguoiDungId, { forceRoadmapRefresh: true });
+      } catch (error: unknown) {
+        logger.warn("Learning insights end-of-day refresh failed", {
+          nguoiDungId: input.nguoiDungId,
+          source: input.source ?? "unknown",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    })();
+  }, delayMs);
+
+  if (typeof timeoutHandle.unref === "function") {
+    timeoutHandle.unref();
+  }
+
+  scheduledEndOfDayRefreshes.set(input.nguoiDungId, timeoutHandle);
+  scheduledEndOfDayKeys.set(input.nguoiDungId, scheduleKey);
 }
 
 function mapWeaknessRow(row: UserWeaknessRow) {

@@ -9,7 +9,7 @@ import { apiService } from "@/services/api";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, BookOpen, ChevronLeft, ChevronRight, Clock, Compass, RefreshCw, Star, Target, Trophy } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 type SkillKey = "listening" | "speaking" | "reading" | "writing" | "grammar";
@@ -150,6 +150,7 @@ function formatActivityDate(value: string): string {
 
 export default function Progress() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const [chartRangeDays, setChartRangeDays] = useState<7 | 30>(7);
   const [attendanceMonth, setAttendanceMonth] = useState<Date>(() => {
@@ -185,6 +186,13 @@ export default function Progress() {
     enabled: Boolean(user),
     staleTime: 60_000,
   });
+
+  useEffect(() => {
+    const state = location.state as { scrollToTop?: boolean } | null;
+    if (state?.scrollToTop) {
+      window.scrollTo({ top: 0, behavior: "auto" });
+    }
+  }, [location.key]);
 
   useEffect(() => {
     if (!isLoading && window.location.hash === "#attendance-board") {
