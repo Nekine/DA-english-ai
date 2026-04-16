@@ -89,6 +89,11 @@ interface BackendPagedResult<T> {
   HasPreviousPage: boolean;
 }
 
+interface NewUsersDatesResponse {
+  Data: string[];
+  TotalCount: number;
+}
+
 // 👤 USER MANAGEMENT INTERFACES
 export interface AdminUser {
   id: string;
@@ -417,16 +422,56 @@ class AdminService {
    */
   async getUsers(): Promise<AdminUser[]> {
     try {
-      const response = await apiService.get<AdminUser[] | BackendPagedResult<any>>('/api/user-management/users');
-      if (Array.isArray(response)) {
-        return response.map((u) => this.normalizeAdminUser(u));
+      const firstPage = await apiService.get<AdminUser[] | BackendPagedResult<any>>(
+        '/api/user-management/users?page=1&pageSize=100&orderBy=username&orderDesc=false',
+      );
+
+      if (Array.isArray(firstPage)) {
+        return firstPage.map((u) => this.normalizeAdminUser(u));
       }
 
-      const rows = Array.isArray(response?.Data) ? response.Data : [];
-      return rows.map((u) => this.normalizeAdminUser(u));
+      const firstRows = Array.isArray(firstPage?.Data) ? firstPage.Data : [];
+      const users: AdminUser[] = firstRows.map((u) => this.normalizeAdminUser(u));
+
+      const totalPagesRaw = Number(firstPage?.TotalPages ?? 1);
+      const totalPages = Number.isFinite(totalPagesRaw) && totalPagesRaw > 1 ? totalPagesRaw : 1;
+
+      for (let page = 2; page <= totalPages; page += 1) {
+        const nextPage = await apiService.get<BackendPagedResult<any>>(
+          `/api/user-management/users?page=${page}&pageSize=100&orderBy=username&orderDesc=false`,
+        );
+
+        const rows = Array.isArray(nextPage?.Data) ? nextPage.Data : [];
+        users.push(...rows.map((u) => this.normalizeAdminUser(u)));
+
+        if (rows.length === 0) {
+          break;
+        }
+      }
+
+      return users;
     } catch (error) {
-      console.warn('UserManagement API not available, using mock data:', error);
-      return this.getMockUsers();
+      console.error('Failed to fetch users from /api/user-management/users:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get user created dates directly from NguoiDung.NgayTao
+   * Endpoint: GET /api/user-management/users/new-users-dates
+   */
+  async getNewUsersCreatedDates(): Promise<string[]> {
+    try {
+      const response = await apiService.get<NewUsersDatesResponse | string[]>('/api/user-management/users/new-users-dates');
+
+      if (Array.isArray(response)) {
+        return response;
+      }
+
+      return Array.isArray(response?.Data) ? response.Data : [];
+    } catch (error) {
+      console.error('Failed to fetch new-user dates from /api/user-management/users/new-users-dates:', error);
+      throw error;
     }
   }
 

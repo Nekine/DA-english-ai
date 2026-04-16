@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,7 +10,6 @@ import { supabase } from '@/services/supabaseClient';
 import { useAuth } from '@/components/AuthContext';
 
 const LoginAlt: React.FC = () => {
-    const navigate = useNavigate();
     const { toast } = useToast();
     const { login } = useAuth();
     const [isLoading, setIsLoading] = useState(false);
@@ -62,7 +61,8 @@ const LoginAlt: React.FC = () => {
                 variant: "default",
             });
 
-            navigate('/index');
+            window.location.replace('/index');
+            return;
 
         } catch (error) {
             console.error('Login error:', error);

@@ -10,7 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, BookOpen, ChevronLeft, ChevronRight, Clock, Compass, RefreshCw, Star, Target, Trophy } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 type SkillKey = "listening" | "speaking" | "reading" | "writing" | "grammar";
 
@@ -165,7 +165,7 @@ export default function Progress() {
     refetch,
     error,
   } = useQuery({
-    queryKey: ["progress-overview", chartRangeDays],
+    queryKey: ["progress-overview", user?.userId, chartRangeDays],
     queryFn: async (): Promise<ProgressOverviewResponse> => {
       return apiService.get<ProgressOverviewResponse>(`/api/progress/overview?days=${chartRangeDays}`);
     },
@@ -179,7 +179,7 @@ export default function Progress() {
     isFetching: isAttendanceFetching,
     refetch: refetchAttendance,
   } = useQuery({
-    queryKey: ["progress-attendance"],
+    queryKey: ["progress-attendance", user?.userId],
     queryFn: async (): Promise<AttendanceResponse> => {
       return apiService.get<AttendanceResponse>("/api/progress/attendance?days=365");
     },
@@ -643,10 +643,30 @@ export default function Progress() {
                 <LineChart data={weeklyChartData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="label" />
-                  <YAxis />
+                  <YAxis yAxisId="left" allowDecimals={false} />
+                  <YAxis yAxisId="right" orientation="right" allowDecimals={false} />
                   <Tooltip />
-                  <Line type="monotone" dataKey="baiDaLam" stroke="#2563eb" strokeWidth={2} name="Bài & đề đã làm" />
-                  <Line type="monotone" dataKey="phutHoc" stroke="#db2777" strokeWidth={2} name="Phút học" />
+                  <Legend />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="baiDaLam"
+                    stroke="#2563eb"
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    activeDot={{ r: 5 }}
+                    name="Bài & đề đã làm"
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="phutHoc"
+                    stroke="#db2777"
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    activeDot={{ r: 5 }}
+                    name="Phút học"
+                  />
                 </LineChart>
                 </ResponsiveContainer>
               </div>

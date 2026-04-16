@@ -59,8 +59,10 @@ const Auth0Callback: React.FC = () => {
               variant: 'default',
             });
 
-            // Redirect về trang chủ
-            navigate('/index', { replace: true });
+            // Hard reload to avoid stale client state from previous account.
+            const targetPath = response.user?.role === 'admin' ? '/admin' : '/index';
+            window.location.replace(targetPath);
+            return;
           } else {
             throw new Error(response.message || 'OAuth login failed');
           }

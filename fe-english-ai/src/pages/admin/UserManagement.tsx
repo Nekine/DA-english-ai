@@ -35,9 +35,9 @@ import { PremiumExpirationPanel } from '@/components/admin/PremiumExpirationPane
 
 // Memoized Statistics Cards component to prevent re-render
 const StatisticsCards = React.memo(({ statistics, allUsers, isLoading }: { statistics: UserStatistics | null, allUsers: User[], isLoading: boolean }) => {
-  const premiumCount = allUsers.filter(u => u.AccountType === 'premium').length;
+  const preCount = allUsers.filter(u => u.AccountType === 'pre').length;
+  const maxCount = allUsers.filter(u => u.AccountType === 'max').length;
   const activeCount = allUsers.filter(u => u.Status === 'active').length;
-  const premiumRate = allUsers.length > 0 ? Math.round((premiumCount / allUsers.length) * 100) : 0;
   
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
@@ -92,14 +92,14 @@ const StatisticsCards = React.memo(({ statistics, allUsers, isLoading }: { stati
         </CardContent>
       </Card>
 
-      {/* Premium */}
+      {/* Goi Pre */}
       <Card className="rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 border-amber-200 dark:border-amber-800 shadow-sm hover:shadow-md transition-shadow">
         <CardContent className="pt-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Premium</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Pre</p>
               <p className="text-3xl font-bold text-amber-600 dark:text-amber-400">
-                {isLoading ? '...' : premiumCount}
+                {isLoading ? '...' : preCount}
               </p>
             </div>
             <div className="p-3 bg-amber-100 dark:bg-amber-900/40 rounded-xl">
@@ -109,18 +109,18 @@ const StatisticsCards = React.memo(({ statistics, allUsers, isLoading }: { stati
         </CardContent>
       </Card>
 
-      {/* Tỷ lệ Premium */}
+      {/* Goi Max */}
       <Card className="rounded-xl bg-gradient-to-br from-purple-50 to-violet-50 dark:from-purple-900/20 dark:to-violet-900/20 border-purple-200 dark:border-purple-800 shadow-sm hover:shadow-md transition-shadow">
         <CardContent className="pt-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Tỷ lệ Premium</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Max</p>
               <p className="text-3xl font-bold text-purple-600 dark:text-purple-400">
-                {isLoading ? '...' : `${premiumRate}%`}
+                {isLoading ? '...' : maxCount}
               </p>
             </div>
             <div className="p-3 bg-purple-100 dark:bg-purple-900/40 rounded-xl">
-              <TrendingUp className="h-7 w-7 text-purple-600 dark:text-purple-400" />
+              <Shield className="h-7 w-7 text-purple-600 dark:text-purple-400" />
             </div>
           </div>
         </CardContent>
@@ -247,7 +247,8 @@ const UserManagement = () => {
   useEffect(() => {
     fetchInitialData(); // Fetch stats and all users once
     fetchUsers(1, true); // Fetch first page with initial load flag
-  }, [fetchInitialData, fetchUsers]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Sync filteredUsers with users (no client-side filtering needed, all done server-side)
   useEffect(() => {
@@ -434,6 +435,34 @@ const UserManagement = () => {
     );
   };
 
+  const getAccountTypeBadge = (accountType: string) => {
+    const type = (accountType || '').toLowerCase();
+
+    if (type === 'max') {
+      return (
+        <Badge className="bg-gradient-to-r from-purple-100 via-violet-100 to-fuchsia-100 text-violet-800 dark:from-violet-900/40 dark:via-purple-900/40 dark:to-fuchsia-900/40 dark:text-violet-300 text-xs px-2 py-0.5 flex-shrink-0 border border-violet-200 dark:border-violet-800 shadow-sm">
+          <Shield className="h-3 w-3 mr-0.5" />
+          Max
+        </Badge>
+      );
+    }
+
+    if (type === 'pre' || type === 'premium') {
+      return (
+        <Badge className="bg-gradient-to-r from-yellow-100 via-amber-100 to-orange-100 text-amber-800 dark:from-yellow-900/40 dark:via-amber-900/40 dark:to-orange-900/40 dark:text-yellow-300 text-xs px-2 py-0.5 flex-shrink-0 border border-amber-200 dark:border-amber-800 shadow-sm">
+          <Shield className="h-3 w-3 mr-0.5" />
+          Pre
+        </Badge>
+      );
+    }
+
+    return (
+      <Badge variant="secondary" className="text-xs px-2 py-0.5 flex-shrink-0 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+        Basic
+      </Badge>
+    );
+  };
+
   const getRoleBadge = (role: string) => {
     const roleMap: Record<string, { label: string; className: string; icon: typeof Shield }> = {
       'admin': { 
@@ -521,7 +550,7 @@ const UserManagement = () => {
         'Username': user.Username,
         'Email': user.Email || '',
         'Số điện thoại': user.Phone || '',
-        'Loại tài khoản': user.AccountType === 'premium' ? 'Premium' : 'Miễn phí',
+        'Loại tài khoản': user.AccountType === 'max' ? 'Max' : user.AccountType === 'pre' ? 'Pre' : 'Basic',
         'Trạng thái': user.Status === 'active' ? 'Hoạt động' : 
                       user.Status === 'inactive' ? 'Không hoạt động' : 'Bị cấm'
       }));
@@ -617,14 +646,6 @@ const UserManagement = () => {
     return pages;
   };
 
-  // Calculate stats from ALL users, not filtered users
-  const userStats = {
-    total: allUsers.length,
-    premium: allUsers.filter(u => u.AccountType === 'premium').length,
-    free: allUsers.filter(u => u.AccountType === 'free').length,
-    active: allUsers.filter(u => u.Status === 'active').length,
-  };
-
   return (
     <div className="space-y-6">
       {/* Error Alert */}
@@ -669,11 +690,11 @@ const UserManagement = () => {
             Biểu đồ thống kê
           </TabsTrigger>
           <TabsTrigger 
-            value="premium" 
+            value="packages" 
             className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:dark:bg-gray-700 data-[state=active]:shadow-md data-[state=active]:font-semibold"
           >
             <Shield className="h-4 w-4" />
-            Quản lý Premium
+            Quản lý gói
           </TabsTrigger>
         </TabsList>
 
@@ -739,16 +760,22 @@ const UserManagement = () => {
                       Tất cả
                     </div>
                   </SelectItem>
-                  <SelectItem value="premium">
-                    <div className="flex items-center gap-2">
-                      <Shield className="h-4 w-4 text-yellow-600" />
-                      Premium
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="free">
+                  <SelectItem value="basic">
                     <div className="flex items-center gap-2">
                       <UsersIcon className="h-4 w-4 text-gray-600" />
-                      Miễn phí
+                      Basic
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="pre">
+                    <div className="flex items-center gap-2">
+                      <Shield className="h-4 w-4 text-yellow-600" />
+                      Pre
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="max">
+                    <div className="flex items-center gap-2">
+                      <Shield className="h-4 w-4 text-purple-600" />
+                      Max
                     </div>
                   </SelectItem>
                 </SelectContent>
@@ -836,16 +863,7 @@ const UserManagement = () => {
                         <p className="font-bold text-gray-900 dark:text-white truncate text-base">
                           {user.FullName || user.Username}
                         </p>
-                        {user.AccountType === 'premium' ? (
-                          <Badge className="bg-gradient-to-r from-yellow-100 via-amber-100 to-orange-100 text-amber-800 dark:from-yellow-900/40 dark:via-amber-900/40 dark:to-orange-900/40 dark:text-yellow-300 text-xs px-2 py-0.5 flex-shrink-0 border border-amber-200 dark:border-amber-800 shadow-sm">
-                            <Shield className="h-3 w-3 mr-0.5" />
-                            Premium
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary" className="text-xs px-2 py-0.5 flex-shrink-0 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
-                            Miễn phí
-                          </Badge>
-                        )}
+                        {getAccountTypeBadge(user.AccountType)}
                       </div>
                       <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">@{user.Username}</p>
                     </div>
@@ -1024,8 +1042,8 @@ const UserManagement = () => {
           <UserStatisticsCharts loading={loading} />
         </TabsContent>
 
-        {/* Tab 3: Premium Management */}
-        <TabsContent value="premium" className="mt-6">
+        {/* Tab 3: Package Management */}
+        <TabsContent value="packages" className="mt-6">
           <PremiumExpirationPanel />
         </TabsContent>
       </Tabs>

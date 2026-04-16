@@ -6,6 +6,7 @@ import {
   createUserManagementUser,
   deleteUserManagementUser,
   exportUsersToExcel,
+  getNewUsersCreatedDatesFromNguoiDung,
   getUserManagementUserDetail,
   getUserManagementUsers,
   importUsersFromExcel,
@@ -50,6 +51,14 @@ export async function getUserManagementUsersHandler(req: Request, res: Response)
 
   const result = await getUserManagementUsers(input);
 
+  res.status(HTTP_STATUS.OK).json(result);
+}
+
+export async function getUserManagementNewUsersDatesHandler(
+  _req: Request,
+  res: Response,
+): Promise<void> {
+  const result = await getNewUsersCreatedDatesFromNguoiDung();
   res.status(HTTP_STATUS.OK).json(result);
 }
 

@@ -87,16 +87,16 @@ const paymentService = {
   /**
    * Manually trigger expired premium account check
    */
-  checkExpiredPremium: async (): Promise<ExpiredCheckResult> => {
-    const response = await apiService.post('/api/payment/check-expired-premium', {});
+  checkExpiredPremium: async (packageType: 'all' | 'pre' | 'max' = 'all'): Promise<ExpiredCheckResult> => {
+    const response = await apiService.post(`/api/payment/check-expired-premium?packageType=${packageType}`, {});
     return response as ExpiredCheckResult;
   },
 
   /**
    * Get users whose premium expires soon
    */
-  getExpiringSoonUsers: async (days: number = 7): Promise<ExpiringSoonResponse> => {
-    const response = await apiService.get(`/api/payment/expiring-soon?days=${days}`);
+  getExpiringSoonUsers: async (days: number = 7, packageType: 'all' | 'pre' | 'max' = 'all'): Promise<ExpiringSoonResponse> => {
+    const response = await apiService.get(`/api/payment/expiring-soon?days=${days}&packageType=${packageType}`);
     return response as ExpiringSoonResponse;
   },
 };
@@ -111,6 +111,7 @@ export interface ExpiredCheckResult {
     userId: number;
     email: string;
     fullName: string;
+    accountType?: string;
     expiredAt: string;
   }>;
 }
@@ -119,6 +120,7 @@ export interface ExpiringSoonUser {
   userId: number;
   email: string;
   fullName: string;
+  accountType?: string;
   premiumExpiresAt: string;
   daysRemaining: number;
 }

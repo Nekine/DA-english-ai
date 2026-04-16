@@ -3,6 +3,7 @@ import {
 	createUserManagementUserHandler,
 	deleteUserManagementUserHandler,
 	exportUsersToExcelHandler,
+	getUserManagementNewUsersDatesHandler,
 	getUserManagementUserDetailHandler,
 	getUserManagementUsersHandler,
 	importUsersFromExcelHandler,
@@ -25,6 +26,7 @@ userManagementRoutes.use(requireAuth);
 userManagementRoutes.use(requireRoles([USER_ROLE.ADMIN]));
 
 userManagementRoutes.get("/users", asyncHandler(getUserManagementUsersHandler));
+userManagementRoutes.get("/users/new-users-dates", asyncHandler(getUserManagementNewUsersDatesHandler));
 userManagementRoutes.get("/users/:id", asyncHandler(getUserManagementUserDetailHandler));
 userManagementRoutes.post(
 	"/users",

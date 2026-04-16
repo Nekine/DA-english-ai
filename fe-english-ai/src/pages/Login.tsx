@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { LockKeyhole, User, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,7 +13,6 @@ import { useAuth } from '@/components/AuthContext';
 import { useAuth0 } from '@auth0/auth0-react';
 
 const Login: React.FC = () => {
-    const navigate = useNavigate();
     const { toast } = useToast();
     const { theme } = useTheme();
     const { login } = useAuth();
@@ -78,12 +77,10 @@ const Login: React.FC = () => {
                 variant: "default",
             });
 
-            // Điều hướng dựa trên role
-            if (response.user?.role === 'admin') {
-                navigate('/admin');
-            } else {
-                navigate('/index');
-            }
+            // Hard reload to avoid stale client state from previous account.
+            const targetPath = response.user?.role === 'admin' ? '/admin' : '/index';
+            window.location.replace(targetPath);
+            return;
 
         } catch (error: unknown) {
             console.error('Login error:', error);

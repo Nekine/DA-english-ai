@@ -4,7 +4,7 @@ import { BaseRepository } from "./base-repository";
 export interface UserListFilters {
   page: number;
   pageSize: number;
-  accountType?: "free" | "premium";
+  accountType?: "basic" | "pre" | "max";
   search?: string;
   status?: "active" | "inactive" | "banned";
 }
@@ -20,6 +20,7 @@ export interface UserListRow {
   Avatar: string | null;
   TotalXP: number;
   PremiumExpiresAt: Date | null;
+  CreatedAt: Date;
 }
 
 export interface UserDetailRow {
@@ -47,10 +48,12 @@ export class UsersRepository extends BaseRepository {
     const whereParts: string[] = [];
 
     if (filters.accountType) {
-      if (filters.accountType === "free") {
+      if (filters.accountType === "basic") {
         whereParts.push("tk.LoaiTaiKhoan = N'basic'");
+      } else if (filters.accountType === "pre") {
+        whereParts.push("tk.LoaiTaiKhoan IN (N'premium', N'pre')");
       } else {
-        whereParts.push("tk.LoaiTaiKhoan IN (N'premium', N'max')");
+        whereParts.push("tk.LoaiTaiKhoan = N'max'");
       }
     }
 
@@ -94,17 +97,23 @@ export class UsersRepository extends BaseRepository {
         tk.TenDangNhap AS Username,
         COALESCE(tk.Email, N'') AS Email,
         nd.SoDienThoai AS Phone,
-        CASE WHEN tk.LoaiTaiKhoan = N'basic' THEN N'free' ELSE N'premium' END AS AccountType,
+        CASE
+          WHEN tk.LoaiTaiKhoan = N'basic' THEN N'basic'
+          WHEN tk.LoaiTaiKhoan IN (N'premium', N'pre') THEN N'pre'
+          WHEN tk.LoaiTaiKhoan = N'max' THEN N'max'
+          ELSE N'basic'
+        END AS AccountType,
         tk.TrangThaiTaiKhoan AS Status,
         nd.HoVaTen AS FullName,
         nd.AnhDaiDienUrl AS Avatar,
         ISNULL(td.TongXP, 0) AS TotalXP,
-        CAST(NULL AS DATETIME2) AS PremiumExpiresAt
+        CAST(NULL AS DATETIME2) AS PremiumExpiresAt,
+        tk.NgayTao AS CreatedAt
       FROM dbo.TaiKhoan tk
       LEFT JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
       LEFT JOIN dbo.TienDoHocTap td ON td.NguoiDungId = nd.NguoiDungId
       ${whereClause}
-      ORDER BY tk.TaiKhoanId DESC
+      ORDER BY tk.TaiKhoanId ASC
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
     `);
 
@@ -121,7 +130,12 @@ export class UsersRepository extends BaseRepository {
         tk.TenDangNhap AS Username,
         COALESCE(tk.Email, N'') AS Email,
         nd.SoDienThoai AS Phone,
-        CASE WHEN tk.LoaiTaiKhoan = N'basic' THEN N'free' ELSE N'premium' END AS AccountType,
+        CASE
+          WHEN tk.LoaiTaiKhoan = N'basic' THEN N'basic'
+          WHEN tk.LoaiTaiKhoan IN (N'premium', N'pre') THEN N'pre'
+          WHEN tk.LoaiTaiKhoan = N'max' THEN N'max'
+          ELSE N'basic'
+        END AS AccountType,
         tk.TrangThaiTaiKhoan AS Status,
         nd.HoVaTen AS FullName,
         nd.TieuSu AS Bio,
@@ -140,5 +154,20 @@ export class UsersRepository extends BaseRepository {
     `);
 
     return result.recordset[0] ?? null;
+  }
+
+  async updateUserStatus(userId: number, status: "active" | "inactive" | "banned"): Promise<boolean> {
+    const request = await this.createRequest();
+    this.bindInput(request, "userId", sql.Int, userId);
+    this.bindInput(request, "status", sql.NVarChar(20), status);
+
+    const result = await request.query(`
+      UPDATE dbo.TaiKhoan
+      SET TrangThaiTaiKhoan = @status,
+          NgayCapNhat = SYSUTCDATETIME()
+      WHERE TaiKhoanId = @userId
+    `);
+
+    return (result.rowsAffected[0] ?? 0) > 0;
   }
 }

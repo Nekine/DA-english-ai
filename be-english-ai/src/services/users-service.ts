@@ -35,7 +35,7 @@ function mapUserDetail(user: UserDetailRow) {
 export async function getUsers(input: {
   page?: number;
   pageSize?: number;
-  accountType?: "free" | "premium";
+  accountType?: "basic" | "pre" | "max";
   search?: string;
   status?: "active" | "inactive" | "banned";
 }) {
@@ -56,6 +56,7 @@ export async function getUsers(input: {
     Data: rows.map((row) => ({
       ...row,
       PremiumExpiresAt: toIsoOrNull(row.PremiumExpiresAt),
+      CreatedAt: row.CreatedAt.toISOString(),
     })),
     Pagination: {
       CurrentPage: filters.page,
@@ -75,4 +76,8 @@ export async function getUserById(userId: number) {
   }
 
   return mapUserDetail(user);
+}
+
+export async function updateUserStatus(userId: number, status: "active" | "inactive" | "banned") {
+  return usersRepository.updateUserStatus(userId, status);
 }

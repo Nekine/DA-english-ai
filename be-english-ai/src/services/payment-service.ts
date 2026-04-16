@@ -95,14 +95,16 @@ export async function getAllPayments(input: {
   };
 }
 
-export async function checkExpiredPremium() {
+export async function checkExpiredPremium(packageType: "all" | "pre" | "max" = "all") {
   const now = new Date();
-  const expiredUsers = await paymentRepository.getExpiredPremiumUsers(now);
+  const expiredUsers = await paymentRepository.getExpiredPremiumUsers(now, packageType);
   const downgraded = await paymentRepository.downgradeUsersToFree(expiredUsers.map((u) => u.id));
+
+  const packageLabel = packageType === "max" ? "max" : packageType === "pre" ? "pre" : "tra phi";
 
   return {
     success: true,
-    message: `Checked ${expiredUsers.length} expired premium users`,
+    message: `Checked ${expiredUsers.length} expired ${packageLabel} users`,
     checkedAt: now.toISOString(),
     totalChecked: expiredUsers.length,
     totalDowngraded: downgraded,
@@ -110,15 +112,16 @@ export async function checkExpiredPremium() {
       userId: u.id,
       email: u.email,
       fullName: u.fullName ?? "",
+      accountType: u.accountType,
       expiredAt: u.premiumExpiresAt?.toISOString() ?? now.toISOString(),
     })),
   };
 }
 
-export async function getExpiringSoonUsers(days: number) {
+export async function getExpiringSoonUsers(days: number, packageType: "all" | "pre" | "max" = "all") {
   const now = new Date();
   const safeDays = Number.isFinite(days) ? Math.max(1, Math.min(90, days)) : 7;
-  const users = await paymentRepository.getExpiringSoonUsers(now, safeDays);
+  const users = await paymentRepository.getExpiringSoonUsers(now, safeDays, packageType);
 
   return {
     success: true,
@@ -131,6 +134,7 @@ export async function getExpiringSoonUsers(days: number) {
         userId: u.id,
         email: u.email,
         fullName: u.fullName ?? "",
+        accountType: u.accountType,
         premiumExpiresAt: expiresAt.toISOString(),
         daysRemaining,
       };

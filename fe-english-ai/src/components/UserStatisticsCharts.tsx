@@ -55,8 +55,9 @@ const STATUS_COLORS = {
 };
 
 const ACCOUNT_COLORS = {
-  premium: COLORS.warning,
-  free: COLORS.primary,
+  basic: COLORS.primary,
+  pre: COLORS.warning,
+  max: COLORS.purple,
 };
 
 export const UserStatisticsCharts: React.FC<UserStatisticsChartsProps> = ({ loading: parentLoading }) => {
@@ -91,8 +92,9 @@ export const UserStatisticsCharts: React.FC<UserStatisticsChartsProps> = ({ load
 
         // 2. Account Type Distribution
         const accountTypeMap: Record<string, { name: string; color: string }> = {
-          'premium': { name: 'Premium', color: ACCOUNT_COLORS.premium },
-          'free': { name: 'Miễn phí', color: ACCOUNT_COLORS.free },
+          'basic': { name: 'Basic', color: ACCOUNT_COLORS.basic },
+          'pre': { name: 'Pre', color: ACCOUNT_COLORS.pre },
+          'max': { name: 'Max', color: ACCOUNT_COLORS.max },
         };
 
         const accountTypeData = data.AccountTypeDistribution.map(item => ({
@@ -267,7 +269,7 @@ export const UserStatisticsCharts: React.FC<UserStatisticsChartsProps> = ({ load
                 <CardTitle className="text-xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">
                   Phân bố loại tài khoản
                 </CardTitle>
-                <CardDescription className="text-sm">Tỷ lệ tài khoản Premium và Miễn phí</CardDescription>
+                <CardDescription className="text-sm">Tỷ lệ tài khoản Basic, Pre và Max</CardDescription>
               </div>
             </div>
           </CardHeader>

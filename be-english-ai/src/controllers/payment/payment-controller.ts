@@ -38,12 +38,24 @@ export async function getAllPaymentsHandler(req: Request, res: Response): Promis
 }
 
 export async function checkExpiredPremiumHandler(_req: Request, res: Response): Promise<void> {
-  const result = await checkExpiredPremium();
+  const packageTypeRaw = _req.query.packageType as string | undefined;
+  const packageType =
+    packageTypeRaw === "pre" || packageTypeRaw === "max" || packageTypeRaw === "all"
+      ? packageTypeRaw
+      : "all";
+
+  const result = await checkExpiredPremium(packageType);
   res.status(HTTP_STATUS.OK).json(result);
 }
 
 export async function getExpiringSoonUsersHandler(req: Request, res: Response): Promise<void> {
   const days = Number(req.query.days ?? 7);
-  const result = await getExpiringSoonUsers(days);
+  const packageTypeRaw = req.query.packageType as string | undefined;
+  const packageType =
+    packageTypeRaw === "pre" || packageTypeRaw === "max" || packageTypeRaw === "all"
+      ? packageTypeRaw
+      : "all";
+
+  const result = await getExpiringSoonUsers(days, packageType);
   res.status(HTTP_STATUS.OK).json(result);
 }

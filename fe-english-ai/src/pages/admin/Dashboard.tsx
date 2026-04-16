@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AdminManagedExercise, AdminManagedTest, adminContentService } from '@/services/adminContentService';
-import { AdminDashboardData, AdminUser, adminService } from '@/services/adminService';
+import { AdminDashboardData, adminService } from '@/services/adminService';
 import { AlertCircle, BookOpen, FileText, Trophy, Users } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
@@ -136,7 +136,7 @@ const Dashboard = () => {
   const [data, setData] = useState<AdminDashboardData | null>(null);
   const [exercises, setExercises] = useState<AdminManagedExercise[]>([]);
   const [tests, setTests] = useState<AdminManagedTest[]>([]);
-  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [newUserDates, setNewUserDates] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exerciseGranularity, setExerciseGranularity] = useState<Granularity>('week');
@@ -149,11 +149,11 @@ const Dashboard = () => {
         setLoading(true);
         setError(null);
 
-        const [dashboardResult, exercisesResult, testsResult, usersResult] = await Promise.allSettled([
+        const [dashboardResult, exercisesResult, testsResult, newUsersDatesResult] = await Promise.allSettled([
           adminService.getDashboardData(),
           adminContentService.getExercises(),
           adminContentService.getTests(),
-          adminService.getUsers(),
+          adminService.getNewUsersCreatedDates(),
         ]);
 
         if (dashboardResult.status === 'fulfilled') {
@@ -175,14 +175,14 @@ const Dashboard = () => {
           setTests([]);
         }
 
-        if (usersResult.status === 'fulfilled') {
-          setUsers(usersResult.value);
+        if (newUsersDatesResult.status === 'fulfilled') {
+          setNewUserDates(newUsersDatesResult.value);
         } else {
-          setUsers([]);
+          setNewUserDates([]);
         }
 
         const hasPartialChartDataError =
-          exercisesResult.status === 'rejected' || testsResult.status === 'rejected' || usersResult.status === 'rejected';
+          exercisesResult.status === 'rejected' || testsResult.status === 'rejected' || newUsersDatesResult.status === 'rejected';
 
         if (!error && hasPartialChartDataError && dashboardResult.status === 'fulfilled') {
           setError('Một số dữ liệu biểu đồ chưa tải được. Trang đang hiển thị dữ liệu hiện có.');
@@ -226,11 +226,11 @@ const Dashboard = () => {
   }, [testGranularity, tests]);
 
   const userSeries = useMemo(() => {
-    const dates = users
-      .map((item) => new Date(item.joinedDate))
+    const dates = newUserDates
+      .map((item) => new Date(item))
       .filter((item) => isValidDate(item));
     return buildSeries(dates, userGranularity, getAnchorDate(dates));
-  }, [userGranularity, users]);
+  }, [newUserDates, userGranularity]);
 
   const exerciseTotal = useMemo(() => exerciseSeries.reduce((sum, point) => sum + point.value, 0), [exerciseSeries]);
   const testTotal = useMemo(() => testSeries.reduce((sum, point) => sum + point.value, 0), [testSeries]);

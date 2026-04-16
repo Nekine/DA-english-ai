@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import { HTTP_STATUS } from "../../constants/http-status";
 import { AppError } from "../../errors/app-error";
 import { ERROR_CODES } from "../../errors/error-codes";
-import { getUserById, getUsers } from "../../services/users-service";
+import { getUserById, getUsers, updateUserStatus } from "../../services/users-service";
 
 function toPositiveInt(value: string | undefined, fallback: number): number {
   if (!value) {
@@ -21,7 +21,7 @@ export async function getUsersHandler(req: Request, res: Response): Promise<void
   const page = toPositiveInt(req.query.page as string | undefined, 1);
   const pageSize = toPositiveInt(req.query.pageSize as string | undefined, 10);
 
-  const accountType = req.query.accountType as "free" | "premium" | undefined;
+  const accountType = req.query.accountType as "basic" | "pre" | "max" | undefined;
   const search = req.query.search as string | undefined;
   const status = req.query.status as "active" | "inactive" | "banned" | undefined;
 
@@ -50,4 +50,31 @@ export async function getUserByIdHandler(req: Request, res: Response): Promise<v
   }
 
   res.status(HTTP_STATUS.OK).json(user);
+}
+
+export async function updateUserStatusHandler(req: Request, res: Response): Promise<void> {
+  const userId = Number(req.params.id);
+  if (!Number.isInteger(userId) || userId <= 0) {
+    throw new AppError("Invalid user id", HTTP_STATUS.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR);
+  }
+
+  const status = req.body?.status as string | undefined;
+  if (!status || !["active", "inactive", "banned"].includes(status)) {
+    throw new AppError(
+      "Invalid status value",
+      HTTP_STATUS.BAD_REQUEST,
+      ERROR_CODES.VALIDATION_ERROR,
+    );
+  }
+
+  const updated = await updateUserStatus(userId, status as "active" | "inactive" | "banned");
+  if (!updated) {
+    throw new AppError("User not found", HTTP_STATUS.NOT_FOUND, ERROR_CODES.RESOURCE_NOT_FOUND);
+  }
+
+  res.status(HTTP_STATUS.OK).json({
+    message: "User status updated successfully",
+    userId,
+    newStatus: status,
+  });
 }

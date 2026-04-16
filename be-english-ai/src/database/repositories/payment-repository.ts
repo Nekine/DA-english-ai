@@ -165,9 +165,16 @@ export class PaymentRepository extends BaseRepository {
     };
   }
 
-  async getExpiredPremiumUsers(now: Date): Promise<UserBasicRow[]> {
+  async getExpiredPremiumUsers(now: Date, packageType: "all" | "pre" | "max" = "all"): Promise<UserBasicRow[]> {
     const request = await this.createRequest();
     this.bindInput(request, "now", sql.DateTime2(3), now);
+
+    const accountTypeFilter =
+      packageType === "max"
+        ? "u.account_type = N'max'"
+        : packageType === "pre"
+          ? "u.account_type IN (N'premium', N'pre')"
+          : "u.account_type IN (N'premium', N'pre', N'max')";
 
     const result = await request.query<UserBasicRow>(`
       SELECT
@@ -178,7 +185,7 @@ export class PaymentRepository extends BaseRepository {
         u.status,
         u.premium_expires_at AS premiumExpiresAt
       FROM dbo.users u
-      WHERE u.account_type = N'premium'
+      WHERE ${accountTypeFilter}
         AND u.status = N'active'
         AND u.premium_expires_at IS NOT NULL
         AND u.premium_expires_at <= @now
@@ -209,10 +216,17 @@ export class PaymentRepository extends BaseRepository {
     return result.rowsAffected[0] ?? 0;
   }
 
-  async getExpiringSoonUsers(now: Date, days: number): Promise<UserBasicRow[]> {
+  async getExpiringSoonUsers(now: Date, days: number, packageType: "all" | "pre" | "max" = "all"): Promise<UserBasicRow[]> {
     const request = await this.createRequest();
     this.bindInput(request, "now", sql.DateTime2(3), now);
     this.bindInput(request, "endDate", sql.DateTime2(3), new Date(now.getTime() + days * 86400000));
+
+    const accountTypeFilter =
+      packageType === "max"
+        ? "u.account_type = N'max'"
+        : packageType === "pre"
+          ? "u.account_type IN (N'premium', N'pre')"
+          : "u.account_type IN (N'premium', N'pre', N'max')";
 
     const result = await request.query<UserBasicRow>(`
       SELECT
@@ -223,7 +237,7 @@ export class PaymentRepository extends BaseRepository {
         u.status,
         u.premium_expires_at AS premiumExpiresAt
       FROM dbo.users u
-      WHERE u.account_type = N'premium'
+      WHERE ${accountTypeFilter}
         AND u.status = N'active'
         AND u.premium_expires_at IS NOT NULL
         AND u.premium_expires_at > @now

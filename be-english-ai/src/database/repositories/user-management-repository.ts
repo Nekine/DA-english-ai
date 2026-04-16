@@ -75,6 +75,10 @@ export interface UserExportRow {
   CreatedAt: Date;
 }
 
+export interface NewUserCreatedAtRow {
+  CreatedAt: Date;
+}
+
 const ORDER_BY_MAP: Record<string, string> = {
   username: "u.username",
   fullname: "u.full_name",
@@ -346,5 +350,21 @@ export class UserManagementRepository extends BaseRepository {
     `);
 
     return result.recordset;
+  }
+
+  async getNguoiDungCreatedDates(): Promise<Date[]> {
+    const request = await this.createRequest();
+
+    const result = await request.query<NewUserCreatedAtRow>(`
+      SELECT
+        nd.NgayTao AS CreatedAt
+      FROM dbo.NguoiDung nd
+      WHERE nd.NgayTao IS NOT NULL
+      ORDER BY nd.NgayTao ASC
+    `);
+
+    return result.recordset
+      .map((row) => row.CreatedAt)
+      .filter((value): value is Date => value instanceof Date && !Number.isNaN(value.getTime()));
   }
 }

@@ -70,23 +70,33 @@ export const UserProfileDialog: React.FC<UserProfileDialogProps> = ({
   };
 
   const getAccountTypeInfo = (accountType: string, premiumExpiresAt?: string) => {
-    const isPremium = accountType === 'premium';
-    const isLifetime = isPremium && !premiumExpiresAt;
-    
-    if (isPremium) {
+    const normalizedType = (accountType || '').toLowerCase();
+
+    if (normalizedType === 'max') {
       return {
-        label: isLifetime ? 'Premium Vĩnh viễn' : 'Premium',
-        className: 'bg-gradient-to-r from-yellow-100 to-orange-100 text-yellow-800 dark:from-yellow-900/30 dark:to-orange-900/30 dark:text-yellow-400',
+        label: 'Max',
+        className: 'bg-gradient-to-r from-purple-100 to-violet-100 text-purple-800 dark:from-purple-900/30 dark:to-violet-900/30 dark:text-purple-300',
         icon: Shield,
-        description: isLifetime ? 'Truy cập vĩnh viễn tất cả tính năng' : `Hết hạn: ${premiumExpiresAt ? new Date(premiumExpiresAt).toLocaleDateString('vi-VN') : 'Không xác định'}`
+        description: 'Goi Max voi day du tinh nang va uu tien cao nhat.'
       };
     }
-    
+
+    if (normalizedType === 'pre' || normalizedType === 'premium') {
+      return {
+        label: 'Pre',
+        className: 'bg-gradient-to-r from-yellow-100 to-orange-100 text-yellow-800 dark:from-yellow-900/30 dark:to-orange-900/30 dark:text-yellow-400',
+        icon: Shield,
+        description: premiumExpiresAt
+          ? `Hết hạn: ${new Date(premiumExpiresAt).toLocaleDateString('vi-VN')}`
+          : 'Goi Pre voi tinh nang nang cao.'
+      };
+    }
+
     return {
-      label: 'Miễn phí',
+      label: 'Basic',
       className: 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400',
       icon: Users,
-      description: 'Tài khoản miễn phí với giới hạn tính năng'
+      description: 'Goi Basic cho nguoi dung co ban.'
     };
   };
 

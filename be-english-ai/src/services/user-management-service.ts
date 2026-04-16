@@ -99,6 +99,15 @@ export async function getUserManagementUsers(input: {
   };
 }
 
+export async function getNewUsersCreatedDatesFromNguoiDung() {
+  const dates = await userManagementRepository.getNguoiDungCreatedDates();
+
+  return {
+    Data: dates.map((date) => date.toISOString()),
+    TotalCount: dates.length,
+  };
+}
+
 export async function getUserManagementUserDetail(userId: number) {
   const user = await userManagementRepository.getUserDetailById(userId);
   if (!user) {

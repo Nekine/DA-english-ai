@@ -13,12 +13,13 @@ export const PremiumExpirationPanel = () => {
   const [expiringSoonUsers, setExpiringSoonUsers] = useState<ExpiringSoonUser[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [daysFilter, setDaysFilter] = useState(7);
+  const [packageFilter, setPackageFilter] = useState<'all' | 'pre' | 'max'>('all');
 
   const handleCheckExpired = async () => {
     try {
       setChecking(true);
       setError(null);
-      const result = await paymentService.checkExpiredPremium();
+      const result = await paymentService.checkExpiredPremium(packageFilter);
       setCheckResult(result);
       
       // Auto refresh expiring soon list after check
@@ -37,7 +38,7 @@ export const PremiumExpirationPanel = () => {
     try {
       setLoadingExpiringSoon(true);
       setError(null);
-      const data = await paymentService.getExpiringSoonUsers(daysFilter);
+      const data = await paymentService.getExpiringSoonUsers(daysFilter, packageFilter);
       setExpiringSoonUsers(data.users || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể tải danh sách tài khoản sắp hết hạn');
@@ -76,6 +77,20 @@ export const PremiumExpirationPanel = () => {
     }
   };
 
+  const getPackageBadge = (accountType?: string) => {
+    const normalized = (accountType || '').toLowerCase();
+
+    if (normalized === 'max') {
+      return <Badge className="bg-purple-100 text-purple-700 border border-purple-300">Max</Badge>;
+    }
+
+    if (normalized === 'pre' || normalized === 'premium') {
+      return <Badge className="bg-amber-100 text-amber-700 border border-amber-300">Pre</Badge>;
+    }
+
+    return <Badge variant="secondary">Basic</Badge>;
+  };
+
   return (
     <div className="space-y-6">
       {/* Manual Check Section */}
@@ -83,7 +98,7 @@ export const PremiumExpirationPanel = () => {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <UserX className="w-5 h-5" />
-            Kiểm tra tài khoản Premium hết hạn
+            Kiểm tra gói trả phí hết hạn
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -125,6 +140,9 @@ export const PremiumExpirationPanel = () => {
                     Đã kiểm tra {checkResult.totalChecked} tài khoản
                   </p>
                   <p>
+                    Gói: <span className="font-bold">{packageFilter === 'all' ? 'Tất cả' : packageFilter === 'pre' ? 'Pre' : 'Max'}</span>
+                  </p>
+                  <p>
                     Hạ cấp: <span className="font-bold">{checkResult.totalDowngraded}</span> tài khoản
                   </p>
                   <p className="text-xs text-muted-foreground">
@@ -146,7 +164,10 @@ export const PremiumExpirationPanel = () => {
                         <p className="font-medium">{user.email}</p>
                         <p className="text-sm text-muted-foreground">{user.fullName}</p>
                       </div>
-                      <Badge variant="destructive">Đã hạ cấp</Badge>
+                      <div className="flex items-center gap-2">
+                        {getPackageBadge(user.accountType)}
+                        <Badge variant="destructive">Đã hạ cấp</Badge>
+                      </div>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
                       Hết hạn: {formatDate(user.expiredAt)}
@@ -164,11 +185,23 @@ export const PremiumExpirationPanel = () => {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-orange-500" />
-            Tài khoản sắp hết hạn
+            Gói Pre/Max sắp hết hạn
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium">Gói:</label>
+              <select
+                value={packageFilter}
+                onChange={(e) => setPackageFilter(e.target.value as 'all' | 'pre' | 'max')}
+                className="border border-gray-300 dark:border-gray-600 rounded px-3 py-1 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="all">Tất cả</option>
+                <option value="pre">Pre</option>
+                <option value="max">Max</option>
+              </select>
+            </div>
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium">Trong vòng:</label>
               <select 
@@ -214,7 +247,10 @@ export const PremiumExpirationPanel = () => {
                   <div key={index} className="p-3 hover:bg-muted/50 transition-colors">
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
-                        <p className="font-medium">{user.email}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium">{user.email}</p>
+                          {getPackageBadge(user.accountType)}
+                        </div>
                         <p className="text-sm text-muted-foreground">{user.fullName}</p>
                         <p className="text-xs text-muted-foreground mt-1">
                           Hết hạn: {formatDate(user.premiumExpiresAt)}
