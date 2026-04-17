@@ -15,4 +15,12 @@ export const appConfig = {
     enabled: env.DB_ENABLED,
     url: env.DB_URL,
   },
+  oauth: {
+    google: {
+      clientId: env.GOOGLE_OAUTH_CLIENT_ID,
+      clientSecret: env.GOOGLE_OAUTH_CLIENT_SECRET,
+      redirectUri: env.GOOGLE_OAUTH_REDIRECT_URI,
+      frontendRedirectUri: env.GOOGLE_OAUTH_FRONTEND_REDIRECT_URI,
+    },
+  },
 } as const;

@@ -32,7 +32,6 @@ export interface CreateOAuthUserInput {
   email: string;
   fullName: string | null;
   avatarUrl: string | null;
-  provider: "google" | "facebook";
   providerId: string;
 }
 
@@ -237,13 +236,7 @@ export class AuthRepository extends BaseRepository {
       request,
       "googleId",
       sql.NVarChar(255),
-      input.provider === "google" ? input.providerId : null,
-    );
-    this.bindInput(
-      request,
-      "facebookId",
-      sql.NVarChar(255),
-      input.provider === "facebook" ? input.providerId : null,
+      input.providerId,
     );
 
     const result = await request.query<{ id: number }>(`
@@ -271,9 +264,9 @@ export class AuthRepository extends BaseRepository {
         @passwordHash,
         N'customer',
         N'basic',
-        ${input.provider === "google" ? "N'google'" : "N'facebook'"},
+        N'google',
         COALESCE(@googleId, @fallbackGoogleId),
-        COALESCE(@facebookId, @fallbackFacebookId),
+        @fallbackFacebookId,
         N'active',
         SYSDATETIME(),
         SYSDATETIME()
@@ -312,7 +305,6 @@ export class AuthRepository extends BaseRepository {
 
   async linkOAuthAndTouchLogin(input: {
     userId: number;
-    provider: "google" | "facebook";
     providerId: string;
     fullName: string | null;
     avatarUrl: string | null;
@@ -323,21 +315,14 @@ export class AuthRepository extends BaseRepository {
       request,
       "googleId",
       sql.NVarChar(255),
-      input.provider === "google" ? input.providerId : null,
-    );
-    this.bindInput(
-      request,
-      "facebookId",
-      sql.NVarChar(255),
-      input.provider === "facebook" ? input.providerId : null,
+      input.providerId,
     );
     this.bindInput(request, "fullName", sql.NVarChar(100), input.fullName);
     this.bindInput(request, "avatarUrl", sql.NVarChar(255), input.avatarUrl);
 
     await request.query(`
       UPDATE dbo.TaiKhoan
-      SET MaGoogle = COALESCE(@googleId, MaGoogle),
-          MaFacebook = COALESCE(@facebookId, MaFacebook),
+        SET MaGoogle = COALESCE(@googleId, MaGoogle),
           LanDangNhapCuoi = SYSDATETIME(),
           NgayCapNhat = SYSDATETIME()
       WHERE TaiKhoanId = @userId;

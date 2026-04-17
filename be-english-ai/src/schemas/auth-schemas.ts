@@ -28,7 +28,7 @@ export const loginRequestSchema = z.object({
 });
 
 export const oauthLoginRequestSchema = z.object({
-  provider: z.enum(["google", "facebook"]),
+  provider: z.enum(["google"]),
   providerId: z.string().trim().min(1, "ProviderId is required"),
   email: z.email("Invalid email format"),
   fullName: z.string().trim().optional(),

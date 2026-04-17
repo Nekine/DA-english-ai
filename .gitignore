@@ -10,6 +10,7 @@ node_modules/
 .env
 .env.*
 !.env.example
+be-english-ai/src/config/env.ts
 
 # ========================
 # KEYS / SECRET FOLDER

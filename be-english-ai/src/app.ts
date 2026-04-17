@@ -3,6 +3,7 @@ import express, { type Request, type Response } from "express";
 import path from "node:path";
 import { authContextMiddleware } from "./middlewares/auth-context";
 import { errorHandlerMiddleware, notFoundMiddleware } from "./middlewares/error-handler";
+import { authRoutes } from "./routes/auth-routes";
 import { apiRoutes } from "./routes";
 import { logger } from "./utils/logger";
 
@@ -47,6 +48,7 @@ export function createApp() {
     res.json({ success: true, message: "be-english-ai is running" });
   });
 
+  app.use("/auth", authRoutes);
   app.use("/api", apiRoutes);
   app.use(notFoundMiddleware);
   app.use(errorHandlerMiddleware);

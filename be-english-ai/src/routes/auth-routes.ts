@@ -1,6 +1,8 @@
 import { Router } from "express";
 import {
   currentUserHandler,
+  googleAuthCallbackHandler,
+  googleAuthStartHandler,
   healthHandler,
   loginHandler,
   oauthLoginHandler,
@@ -18,6 +20,9 @@ import {
 import { asyncHandler } from "../utils/async-handler";
 
 export const authRoutes = Router();
+
+authRoutes.get("/google", googleAuthStartHandler);
+authRoutes.get("/google/callback", asyncHandler(googleAuthCallbackHandler));
 
 authRoutes.post("/register", validateBody(registerRequestSchema), asyncHandler(registerHandler));
 authRoutes.post(

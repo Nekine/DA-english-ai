@@ -18,7 +18,7 @@ export interface LoginRequest {
 }
 
 export interface OAuthLoginRequest {
-  provider: 'google' | 'facebook';
+  provider: 'google';
   providerId: string;
   email: string;
   fullName?: string;
@@ -77,7 +77,7 @@ class AuthService {
   }
 
   /**
-   * Login with OAuth (Google/Facebook)
+   * Login with OAuth (Google)
    */
   async oauthLogin(data: OAuthLoginRequest): Promise<AuthResponse> {
     const response = await api.post<AuthResponse, OAuthLoginRequest>('/api/auth/oauth-login', data);

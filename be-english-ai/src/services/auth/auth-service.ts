@@ -20,7 +20,7 @@ export interface LoginRequest {
 }
 
 export interface OAuthLoginRequest {
-  provider: "google" | "facebook";
+  provider: "google";
   providerId: string;
   email: string;
   fullName?: string | null;
@@ -65,9 +65,9 @@ function toAuthResponseUser(input: {
   });
 }
 
-function normalizeProvider(provider: string): "google" | "facebook" | null {
+function normalizeProvider(provider: string): "google" | null {
   const normalized = provider.trim().toLowerCase();
-  if (normalized === "google" || normalized === "facebook") {
+  if (normalized === "google") {
     return normalized;
   }
 
@@ -154,7 +154,7 @@ export async function login(input: LoginRequest): Promise<AuthResponse> {
     if (!user.passwordHash || user.passwordHash.trim().length === 0) {
       return {
         success: false,
-        message: "This account uses social login. Please login with Google or Facebook.",
+        message: "This account uses social login. Please login with Google.",
       };
     }
 
@@ -211,10 +211,7 @@ export async function oauthLogin(input: OAuthLoginRequest): Promise<AuthResponse
     const fullName = input.fullName?.trim() ?? null;
     const avatar = input.avatar?.trim() ?? null;
 
-    let user =
-      provider === "google"
-        ? await authRepository.findByGoogleId(providerId)
-        : await authRepository.findByFacebookId(providerId);
+    let user = await authRepository.findByGoogleId(providerId);
 
     if (!user) {
       user = await authRepository.findByEmail(email);
@@ -222,7 +219,6 @@ export async function oauthLogin(input: OAuthLoginRequest): Promise<AuthResponse
       if (user) {
         await authRepository.linkOAuthAndTouchLogin({
           userId: user.id,
-          provider,
           providerId,
           fullName,
           avatarUrl: avatar,
@@ -238,7 +234,6 @@ export async function oauthLogin(input: OAuthLoginRequest): Promise<AuthResponse
         email,
         fullName,
         avatarUrl: avatar,
-        provider,
         providerId,
       });
 

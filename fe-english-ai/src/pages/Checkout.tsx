@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Building2, CheckCircle2, ArrowLeft, QrCode, Copy } from "lucide-react";
 import { toast } from "sonner";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/components/AuthContext";
 import {
   Dialog,
@@ -16,13 +16,48 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+type BillingCycle = "1month" | "6months" | "1year";
+type PlanTier = "pre" | "max";
+
+type CheckoutPlan = {
+  price: number;
+  vat: number;
+  total: number;
+  label: string;
+  displayPrice: string;
+  monthlyEquivalent: string;
+  note: string;
+  discountText?: string;
+  originalPrice?: number;
+};
+
+const parseTier = (value: string | null): PlanTier => {
+  if (value === "max") {
+    return "max";
+  }
+  return "pre";
+};
+
+const parseCycle = (value: string | null): BillingCycle => {
+  if (value === "6months" || value === "1year") {
+    return value;
+  }
+  return "1month";
+};
+
 const Checkout = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
+
+  const initialTier = parseTier(searchParams.get("tier"));
+  const initialCycle = parseCycle(searchParams.get("cycle"));
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [showQRDialog, setShowQRDialog] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState("");
-  const [selectedPlan, setSelectedPlan] = useState<'1month' | '6months'>('1month');
+  const [selectedTier, setSelectedTier] = useState<PlanTier>(initialTier);
+  const [selectedCycle, setSelectedCycle] = useState<BillingCycle>(initialCycle);
   const [customerInfo, setCustomerInfo] = useState({
     fullName: "",
     email: "",
@@ -39,13 +74,93 @@ const Checkout = () => {
     }
   }, [user]);
 
-  // Pricing plans
-  const plans = {
-    '1month': { price: 199000, vat: 19900, total: 218900, label: '1 tháng' },
-    '6months': { price: 999000, vat: 99900, total: 1098900, label: '6 tháng' }
+  const cycleOptions: Array<{ value: BillingCycle; label: string }> = [
+    { value: "1month", label: "1 Tháng" },
+    { value: "6months", label: "6 Tháng" },
+    { value: "1year", label: "1 Năm" },
+  ];
+
+  const planMatrix: Record<PlanTier, Record<BillingCycle, CheckoutPlan>> = {
+    pre: {
+      "1month": {
+        price: 199000,
+        vat: 19900,
+        total: 218900,
+        label: "1 tháng",
+        displayPrice: "199.000đ",
+        monthlyEquivalent: "199.000đ/tháng",
+        note: "Gói Pre tiêu chuẩn",
+      },
+      "6months": {
+        price: 999000,
+        vat: 99900,
+        total: 1098900,
+        label: "6 tháng",
+        displayPrice: "999.000đ",
+        monthlyEquivalent: "166.500đ/tháng",
+        note: "Tiết kiệm 16%",
+        discountText: "Giảm 16%",
+        originalPrice: 1194000,
+      },
+      "1year": {
+        price: 1899000,
+        vat: 189900,
+        total: 2088900,
+        label: "1 năm",
+        displayPrice: "1.899.000đ",
+        monthlyEquivalent: "158.250đ/tháng",
+        note: "Tiết kiệm 20%",
+        discountText: "Giảm 20%",
+        originalPrice: 2388000,
+      },
+    },
+    max: {
+      "1month": {
+        price: 299000,
+        vat: 29900,
+        total: 328900,
+        label: "1 tháng",
+        displayPrice: "299.000đ",
+        monthlyEquivalent: "299.000đ/tháng",
+        note: "Không giới hạn bài tập và đề thi",
+      },
+      "6months": {
+        price: 1499000,
+        vat: 149900,
+        total: 1648900,
+        label: "6 tháng",
+        displayPrice: "1.499.000đ",
+        monthlyEquivalent: "249.833đ/tháng",
+        note: "Không giới hạn bài tập và đề thi",
+        discountText: "Giảm 16%",
+        originalPrice: 1794000,
+      },
+      "1year": {
+        price: 2799000,
+        vat: 279900,
+        total: 3078900,
+        label: "1 năm",
+        displayPrice: "2.799.000đ",
+        monthlyEquivalent: "233.250đ/tháng",
+        note: "Không giới hạn bài tập và đề thi",
+        discountText: "Giảm 22%",
+        originalPrice: 3588000,
+      },
+    },
   };
 
-  const currentPlan = plans[selectedPlan];
+  const currentPlan = planMatrix[selectedTier][selectedCycle];
+  const planName = selectedTier === "max" ? "Max" : "Pre";
+
+  const handleSelectTier = (tier: PlanTier) => {
+    setSelectedTier(tier);
+    setSearchParams({ tier, cycle: selectedCycle });
+  };
+
+  const handleSelectCycle = (cycle: BillingCycle) => {
+    setSelectedCycle(cycle);
+    setSearchParams({ tier: selectedTier, cycle });
+  };
 
   // Bank information
   const bankInfo = {
@@ -83,7 +198,7 @@ const Checkout = () => {
     setCustomerInfo({ fullName, email, phone });
 
     // Generate transfer content: Name + Email (shorter format)
-    const transferContent = `${fullName} ${email}`;
+    const transferContent = `${fullName} ${email} ${planName}-${currentPlan.label}`;
     const qrUrl = generateQRCode(transferContent);
     setQrCodeUrl(qrUrl);
     setShowQRDialog(true);
@@ -114,7 +229,7 @@ const Checkout = () => {
                 <CardHeader>
                   <CardTitle className="text-2xl">Thông tin thanh toán</CardTitle>
                   <CardDescription>
-                    Hoàn tất thanh toán để kích hoạt tài khoản Premium
+                    Hoàn tất thanh toán để kích hoạt tài khoản {planName}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -125,34 +240,63 @@ const Checkout = () => {
                       <div className="grid grid-cols-2 gap-4">
                         <button
                           type="button"
-                          onClick={() => setSelectedPlan('1month')}
-                          className={`p-4 rounded-lg border-2 transition-all ${
-                            selectedPlan === '1month'
-                              ? 'border-primary bg-primary/10'
-                              : 'border-border hover:border-primary/50'
+                          onClick={() => handleSelectTier("pre")}
+                          className={`p-4 rounded-lg border-2 transition-all text-left ${
+                            selectedTier === "pre"
+                              ? "border-primary bg-primary/10"
+                              : "border-border hover:border-primary/50"
                           }`}
                         >
-                          <div className="text-lg font-bold">1 Tháng</div>
-                          <div className="text-2xl font-bold text-primary mt-2">199.000đ</div>
-                          <div className="text-sm text-muted-foreground mt-1">199.000đ/tháng</div>
+                          <div className="text-lg font-bold">Gói Pre</div>
+                          <div className="text-sm text-muted-foreground mt-1">15 bài tập/ngày, 10 đề thi/tháng</div>
                         </button>
                         <button
                           type="button"
-                          onClick={() => setSelectedPlan('6months')}
-                          className={`p-4 rounded-lg border-2 transition-all relative ${
-                            selectedPlan === '6months'
-                              ? 'border-primary bg-primary/10'
-                              : 'border-border hover:border-primary/50'
+                          onClick={() => handleSelectTier("max")}
+                          className={`p-4 rounded-lg border-2 transition-all text-left ${
+                            selectedTier === "max"
+                              ? "border-primary bg-primary/10"
+                              : "border-border hover:border-primary/50"
                           }`}
                         >
-                          <div className="absolute -top-2 -right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full font-semibold">
-                            Giảm 16%
-                          </div>
-                          <div className="text-lg font-bold">6 Tháng</div>
-                          <div className="text-2xl font-bold text-primary mt-2">999.000đ</div>
-                          <div className="text-sm text-muted-foreground mt-1">166.500đ/tháng</div>
+                          <div className="text-lg font-bold">Gói Max</div>
+                          <div className="text-sm text-muted-foreground mt-1">Không giới hạn bài tập và đề thi</div>
                         </button>
                       </div>
+
+                      <div className="grid md:grid-cols-3 gap-4">
+                        {cycleOptions.map((cycle) => {
+                          const optionPlan = planMatrix[selectedTier][cycle.value];
+
+                          return (
+                            <button
+                              key={cycle.value}
+                              type="button"
+                              onClick={() => handleSelectCycle(cycle.value)}
+                              className={`p-4 rounded-lg border-2 transition-all relative ${
+                                selectedCycle === cycle.value
+                                  ? "border-primary bg-primary/10"
+                                  : "border-border hover:border-primary/50"
+                              }`}
+                            >
+                              {optionPlan.discountText && (
+                                <div className="absolute -top-2 -right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full font-semibold">
+                                  {optionPlan.discountText}
+                                </div>
+                              )}
+                              <div className="text-lg font-bold">{cycle.label}</div>
+                              <div className="text-2xl font-bold text-primary mt-2">{optionPlan.displayPrice}</div>
+                              <div className="text-sm text-muted-foreground mt-1">{optionPlan.monthlyEquivalent}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {currentPlan.originalPrice && (
+                        <p className="text-sm text-muted-foreground">
+                          Giá gốc: <span className="line-through">{currentPlan.originalPrice.toLocaleString("vi-VN")}đ</span>
+                        </p>
+                      )}
                     </div>
 
                     <Separator />
@@ -244,9 +388,9 @@ const Checkout = () => {
                         <CheckCircle2 className="w-6 h-6 text-primary-foreground" />
                       </div>
                       <div>
-                        <h3 className="font-semibold text-lg">Gói Premium {currentPlan.label}</h3>
+                        <h3 className="font-semibold text-lg">Gói {planName} {currentPlan.label}</h3>
                         <p className="text-sm text-muted-foreground">
-                          {selectedPlan === '6months' ? 'Tiết kiệm 16%' : 'Thanh toán hàng tháng'}
+                          {currentPlan.note}
                         </p>
                       </div>
                     </div>
@@ -273,7 +417,9 @@ const Checkout = () => {
                   <div className="space-y-3 text-sm text-muted-foreground">
                     <div className="flex items-start gap-2">
                       <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                      <span>Tự động gia hạn hàng tháng</span>
+                      <span>
+                        Tự động gia hạn {selectedCycle === "1month" ? "hàng tháng" : selectedCycle === "6months" ? "mỗi 6 tháng" : "mỗi năm"}
+                      </span>
                     </div>
                     <div className="flex items-start gap-2">
                       <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
@@ -287,7 +433,7 @@ const Checkout = () => {
 
                   <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
                     <p className="text-sm text-foreground">
-                      <strong>Ưu đãi đặc biệt:</strong> Tặng thêm 1 tháng khi đăng ký năm đầu tiên!
+                      <strong>Gói đã chọn:</strong> {planName} {currentPlan.label} ({currentPlan.displayPrice})
                     </p>
                   </div>
                 </CardContent>
@@ -389,14 +535,14 @@ const Checkout = () => {
                   <div className="flex-1 min-w-0">
                     <div className="text-muted-foreground text-xs mb-1">Nội dung chuyển khoản</div>
                     <div className="font-medium break-words">
-                      {customerInfo.fullName} {customerInfo.email}
+                      {customerInfo.fullName} {customerInfo.email} {planName}-{currentPlan.label}
                     </div>
                   </div>
                   <Button
                     variant="ghost"
                     size="sm"
                     className="ml-2 flex-shrink-0"
-                    onClick={() => handleCopyAccountInfo(`${customerInfo.fullName} ${customerInfo.email}`)}
+                    onClick={() => handleCopyAccountInfo(`${customerInfo.fullName} ${customerInfo.email} ${planName}-${currentPlan.label}`)}
                   >
                     <Copy className="w-4 h-4" />
                   </Button>
