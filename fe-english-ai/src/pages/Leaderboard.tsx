@@ -6,13 +6,14 @@
 
 import Navbar from "@/components/Navbar";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useAuth } from "@/components/AuthContext";
 import { apiService } from "@/services/api";
 import { TOEIC_PARTS } from "@/constants/toeicParts";
 import { normalizeToeicParts } from "@/utils/toeicParts";
@@ -26,7 +27,10 @@ type LeaderboardUserWithParts = LeaderboardUser & { parts: ToeicPartScore[] };
 
 interface LeaderboardUser {
   rank: number;
+  userId?: number;
   username: string;
+  fullName?: string;
+  avatar?: string;
   totalScore: number;
   attendanceStars: number;
   exercises: number;
@@ -61,7 +65,20 @@ function normalizeLeaderboardResponse(
 
     return {
       rank: Number(record.rank ?? record.Rank ?? index + 1) || index + 1,
+      ...(Number(record.userId ?? record.UserID ?? record.id ?? 0) > 0
+        ? { userId: Number(record.userId ?? record.UserID ?? record.id) }
+        : {}),
       username: String(record.username ?? record.Username ?? `user_${index + 1}`),
+      ...(record.fullName ?? record.FullName
+        ? { fullName: String(record.fullName ?? record.FullName) }
+        : {}),
+      ...(record.avatar ?? record.Avatar ?? record.avatarUrl ?? record.AvatarUrl ?? record.AvatarURL
+        ? {
+            avatar: String(
+              record.avatar ?? record.Avatar ?? record.avatarUrl ?? record.AvatarUrl ?? record.AvatarURL,
+            ),
+          }
+        : {}),
       totalScore,
       attendanceStars: Number(record.attendanceStars ?? record.AttendanceStars ?? 0) || 0,
       exercises: Number(record.exercises ?? record.ExercisesCompleted ?? 0) || 0,
@@ -309,6 +326,7 @@ const getTimeFilteredData = (timeFilter: string): LeaderboardUser[] => {
  * - Fallback data khi API không khả dụng
  */
 export default function Leaderboard() {
+  const { user: authUser } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [timeFilter, setTimeFilter] = useState<string>("all");
   
@@ -371,8 +389,30 @@ export default function Leaderboard() {
     });
   };
 
-  // Sort data by total score to determine leaderboard order.
+  const resolveAvatarSrc = (avatar?: string) => {
+    if (!avatar) {
+      return undefined;
+    }
+
+    if (/^https?:\/\//i.test(avatar)) {
+      return avatar;
+    }
+
+    if (avatar.startsWith('/images/')) {
+      const apiTarget = import.meta.env.VITE_API_TARGET as string | undefined;
+      const inferredApiTarget = `${window.location.protocol}//${window.location.hostname}:3000`;
+      return `${apiTarget || inferredApiTarget}${avatar}`;
+    }
+
+    return avatar;
+  };
+
+  // Keep row order consistent with backend ranking.
   const sortedByFilter = [...normalizedLeaderboard].sort((a, b) => {
+    if (a.rank !== b.rank) {
+      return a.rank - b.rank;
+    }
+
     return b.totalScore - a.totalScore;
   });
 
@@ -380,17 +420,36 @@ export default function Leaderboard() {
   const filteredData = sortedByFilter
     .filter(user => user.username.toLowerCase().includes(searchQuery.toLowerCase()));
 
-  const currentUser =
-    normalizedLeaderboard.find((user) => user.username === CURRENT_USER) ??
-    normalizedLeaderboard[0] ??
-    null;
+  const currentUser = useMemo(() => {
+    if (!normalizedLeaderboard.length) {
+      return null;
+    }
 
-  // Calculate rank based on sorted data (not filtered)
-  const currentRank = currentUser
-    ? sortedByFilter.findIndex((user) => user.username === currentUser.username) + 1
-    : 0;
+    if (authUser?.userId) {
+      const byId = normalizedLeaderboard.find((item) => item.userId === authUser.userId);
+      if (byId) {
+        return byId;
+      }
+    }
+
+    if (authUser?.username) {
+      const normalizedUsername = authUser.username.trim().toLowerCase();
+      const byUsername = normalizedLeaderboard.find(
+        (item) => item.username.trim().toLowerCase() === normalizedUsername,
+      );
+
+      if (byUsername) {
+        return byUsername;
+      }
+    }
+
+    return normalizedLeaderboard.find((item) => item.username === CURRENT_USER) ?? null;
+  }, [normalizedLeaderboard, authUser]);
+
+  const currentRank = currentUser?.rank ?? 0;
 
   const currentScore = currentUser ? currentUser.totalScore : 0;
+  const currentUserAvatar = resolveAvatarSrc(currentUser?.avatar ?? authUser?.avatar);
   const totalSystemUsers = leaderboardData?.systemTotalUsers ?? leaderboardData?.totalCount ?? currentLeaderboard.length;
 
 const pageGradient =
@@ -474,6 +533,7 @@ return (
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                 <Avatar className="h-16 w-16 border-2 border-primary">
+                  {currentUserAvatar ? <AvatarImage src={currentUserAvatar} alt="Avatar của bạn" /> : null}
                   <AvatarFallback className="bg-primary text-primary-foreground text-lg font-bold">
                     BẠN
                   </AvatarFallback>
@@ -588,6 +648,7 @@ return (
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-10 w-10">
+                          {user.avatar ? <AvatarImage src={resolveAvatarSrc(user.avatar)} alt={`Avatar ${user.username}`} /> : null}
                           <AvatarFallback className="bg-primary/20 text-primary">
                             {getInitials(user.username)}
                           </AvatarFallback>
@@ -627,12 +688,13 @@ return (
             <DialogHeader>
               <DialogTitle className="flex items-center gap-3">
                 <Avatar className="h-12 w-12">
+                  {selectedUser?.avatar ? <AvatarImage src={resolveAvatarSrc(selectedUser.avatar)} alt={`Avatar ${selectedUser.username}`} /> : null}
                   <AvatarFallback className="bg-primary/20 text-primary text-lg">
                     {selectedUser && getInitials(selectedUser.username)}
                   </AvatarFallback>
                 </Avatar>
                 <div>
-                  <div className="text-xl">{selectedUser?.username}</div>
+                  <div className="text-xl">{selectedUser?.fullName || selectedUser?.username}</div>
                   <div className="text-sm text-muted-foreground font-normal">
                     {selectedUser?.exams} kỳ thi đã hoàn thành
                   </div>

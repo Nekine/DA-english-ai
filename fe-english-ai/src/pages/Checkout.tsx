@@ -1,20 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Building2, CheckCircle2, ArrowLeft, QrCode, Copy } from "lucide-react";
+import { Building2, CheckCircle2, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/components/AuthContext";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import paymentService from "@/services/paymentService";
 
 type BillingCycle = "1month" | "6months" | "1year";
 type PlanTier = "pre" | "max";
@@ -48,14 +42,13 @@ const parseCycle = (value: string | null): BillingCycle => {
 const Checkout = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
+  const handledOrderCodeRef = useRef<string | null>(null);
 
   const initialTier = parseTier(searchParams.get("tier"));
   const initialCycle = parseCycle(searchParams.get("cycle"));
 
   const [isProcessing, setIsProcessing] = useState(false);
-  const [showQRDialog, setShowQRDialog] = useState(false);
-  const [qrCodeUrl, setQrCodeUrl] = useState("");
   const [selectedTier, setSelectedTier] = useState<PlanTier>(initialTier);
   const [selectedCycle, setSelectedCycle] = useState<BillingCycle>(initialCycle);
   const [customerInfo, setCustomerInfo] = useState({
@@ -66,13 +59,65 @@ const Checkout = () => {
 
   // Auto-fill email from user data
   useEffect(() => {
-    if (user?.email) {
+    if (user?.email || user?.fullName) {
       setCustomerInfo(prev => ({
         ...prev,
-        email: user.email || ""
+        email: user?.email || prev.email,
+        fullName: user?.fullName || prev.fullName,
       }));
     }
   }, [user]);
+
+  useEffect(() => {
+    const orderCode = searchParams.get("orderCode");
+    const fromPayos = searchParams.get("payos") === "1";
+
+    if (!fromPayos || !orderCode || handledOrderCodeRef.current === orderCode) {
+      return;
+    }
+
+    handledOrderCodeRef.current = orderCode;
+
+    const checkOrderStatus = async () => {
+      try {
+        const result = await paymentService.getPayosOrderStatus(orderCode);
+
+        setSelectedTier(result.tier);
+        setSelectedCycle(result.cycle);
+        setSearchParams({ tier: result.tier, cycle: result.cycle });
+
+        if (result.status === "completed") {
+          await refreshUser();
+          toast.success("Thanh toán thành công", {
+            description: `Tài khoản đã được kích hoạt gói ${result.packageName}.`,
+          });
+          return;
+        }
+
+        if (result.status === "pending") {
+          toast.info("Đơn hàng đang chờ xử lý", {
+            description: "Hệ thống sẽ tự động kích hoạt gói khi nhận xác nhận thanh toán từ PayOS.",
+          });
+          return;
+        }
+
+        if (result.status === "cancelled") {
+          toast.warning("Bạn đã hủy thanh toán", {
+            description: "Bạn có thể thử lại giao dịch bất cứ lúc nào.",
+          });
+          return;
+        }
+
+        toast.error("Thanh toán chưa thành công", {
+          description: "Giao dịch thất bại hoặc đã hết hạn. Vui lòng thử lại.",
+        });
+      } catch (error) {
+        console.error("Failed to check PayOS order status:", error);
+      }
+    };
+
+    void checkOrderStatus();
+  }, [searchParams, setSearchParams, refreshUser]);
 
   const cycleOptions: Array<{ value: BillingCycle; label: string }> = [
     { value: "1month", label: "1 Tháng" },
@@ -83,13 +128,13 @@ const Checkout = () => {
   const planMatrix: Record<PlanTier, Record<BillingCycle, CheckoutPlan>> = {
     pre: {
       "1month": {
-        price: 199000,
-        vat: 19900,
-        total: 218900,
+        price: 10000,
+        vat: 1000,
+        total: 11000,
         label: "1 tháng",
-        displayPrice: "199.000đ",
-        monthlyEquivalent: "199.000đ/tháng",
-        note: "Gói Pre tiêu chuẩn",
+        displayPrice: "10.000đ",
+        monthlyEquivalent: "10.000đ/tháng",
+        note: "Giá test tạm thời",
       },
       "6months": {
         price: 999000,
@@ -162,27 +207,9 @@ const Checkout = () => {
     setSearchParams({ tier: selectedTier, cycle });
   };
 
-  // Bank information
-  const bankInfo = {
-    bankId: "970407", // Techcombank bank code
-    accountNo: "999914052004",
-    accountName: "LE TRUNG KIEN",
-    amount: currentPlan.total,
-  };
-
-  // Generate VietQR code URL
-  const generateQRCode = (transferContent: string) => {
-    const { bankId, accountNo, accountName, amount } = bankInfo;
-    
-    // VietQR format: https://img.vietqr.io/image/{BANK_ID}-{ACCOUNT_NO}-{TEMPLATE}.png?amount={AMOUNT}&addInfo={CONTENT}&accountName={ACCOUNT_NAME}
-    const qrUrl = `https://img.vietqr.io/image/${bankId}-${accountNo}-compact2.png?amount=${amount}&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(accountName)}`;
-    
-    return qrUrl;
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     const formData = new FormData(e.target as HTMLFormElement);
     const fullName = (formData.get("fullName") as string || "").trim();
     const email = (formData.get("email") as string || "").trim();
@@ -197,16 +224,24 @@ const Checkout = () => {
     // Update customer info
     setCustomerInfo({ fullName, email, phone });
 
-    // Generate transfer content: Name + Email (shorter format)
-    const transferContent = `${fullName} ${email} ${planName}-${currentPlan.label}`;
-    const qrUrl = generateQRCode(transferContent);
-    setQrCodeUrl(qrUrl);
-    setShowQRDialog(true);
-  };
+    try {
+      setIsProcessing(true);
+      const response = await paymentService.createPayosPaymentLink({
+        tier: selectedTier,
+        cycle: selectedCycle,
+        fullName,
+        email,
+        phone,
+      });
 
-  const handleCopyAccountInfo = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast.success("Đã sao chép!");
+      toast.info("Đang chuyển đến trang thanh toán PayOS...");
+      window.location.assign(response.checkoutUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không thể tạo liên kết thanh toán";
+      toast.error(message);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -354,9 +389,9 @@ const Checkout = () => {
                       <div className="flex items-center gap-4 p-4 rounded-lg border-2 border-primary bg-accent">
                         <Building2 className="w-6 h-6 text-primary" />
                         <div className="flex-1">
-                          <div className="font-semibold">Chuyển khoản ngân hàng</div>
+                          <div className="font-semibold">PayOS</div>
                           <div className="text-sm text-muted-foreground">
-                            Chuyển khoản qua ATM/Internet Banking hoặc quét mã QR
+                            Thanh toán tự động qua ngân hàng hoặc ví liên kết trên cổng PayOS
                           </div>
                         </div>
                       </div>
@@ -368,7 +403,7 @@ const Checkout = () => {
                       className="w-full"
                       disabled={isProcessing}
                     >
-                      {isProcessing ? "Đang xử lý..." : "Tạo mã QR thanh toán"}
+                      {isProcessing ? "Đang xử lý..." : "Thanh toán với PayOS"}
                     </Button>
                   </form>
                 </CardContent>
@@ -418,16 +453,16 @@ const Checkout = () => {
                     <div className="flex items-start gap-2">
                       <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
                       <span>
-                        Tự động gia hạn {selectedCycle === "1month" ? "hàng tháng" : selectedCycle === "6months" ? "mỗi 6 tháng" : "mỗi năm"}
+                        Thanh toán bảo mật và xác nhận tự động qua PayOS
                       </span>
                     </div>
                     <div className="flex items-start gap-2">
                       <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                      <span>Hủy bất cứ lúc nào</span>
+                      <span>Kích hoạt gói ngay sau khi thanh toán thành công</span>
                     </div>
                     <div className="flex items-start gap-2">
                       <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                      <span>Hoàn tiền 100% trong 7 ngày</span>
+                      <span>Hỗ trợ xử lý đơn hàng nếu giao dịch bị gián đoạn</span>
                     </div>
                   </div>
 
@@ -442,135 +477,6 @@ const Checkout = () => {
           </div>
         </div>
       </main>
-
-      {/* QR Code Dialog */}
-      <Dialog open={showQRDialog} onOpenChange={setShowQRDialog}>
-        <DialogContent className="max-w-4xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <QrCode className="w-5 h-5" />
-              Quét mã QR để thanh toán
-            </DialogTitle>
-            <DialogDescription>
-              Quét mã QR bằng ứng dụng ngân hàng để thanh toán tự động
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="grid md:grid-cols-2 gap-6">
-            {/* Left: QR Code */}
-            <div className="flex flex-col items-center justify-center">
-              <div className="p-4 bg-white rounded-lg">
-                {qrCodeUrl && (
-                  <img 
-                    src={qrCodeUrl} 
-                    alt="QR Code Payment" 
-                    className="w-64 h-64 object-contain"
-                    onError={(e) => {
-                      console.error("QR Code load error");
-                      toast.error("Không thể tải mã QR. Vui lòng thử lại!");
-                    }}
-                  />
-                )}
-              </div>
-              <p className="text-sm text-muted-foreground mt-3 text-center">
-                Quét mã QR để tự động điền thông tin
-              </p>
-            </div>
-
-            {/* Right: Bank Information */}
-            <div className="space-y-4">
-              <h4 className="font-semibold">Thông tin chuyển khoản:</h4>
-              
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between items-center p-3 bg-accent rounded-lg">
-                  <div className="flex-1">
-                    <div className="text-muted-foreground text-xs">Ngân hàng</div>
-                    <div className="font-medium">Techcombank</div>
-                  </div>
-                </div>
-
-                <div className="flex justify-between items-center p-3 bg-accent rounded-lg">
-                  <div className="flex-1">
-                    <div className="text-muted-foreground text-xs">Số tài khoản</div>
-                    <div className="font-medium">{bankInfo.accountNo}</div>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleCopyAccountInfo(bankInfo.accountNo)}
-                  >
-                    <Copy className="w-4 h-4" />
-                  </Button>
-                </div>
-
-                <div className="flex justify-between items-center p-3 bg-accent rounded-lg">
-                  <div className="flex-1">
-                    <div className="text-muted-foreground text-xs">Chủ tài khoản</div>
-                    <div className="font-medium">{bankInfo.accountName}</div>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleCopyAccountInfo(bankInfo.accountName)}
-                  >
-                    <Copy className="w-4 h-4" />
-                  </Button>
-                </div>
-
-                <div className="flex justify-between items-center p-3 bg-accent rounded-lg">
-                  <div className="flex-1">
-                    <div className="text-muted-foreground text-xs">Số tiền</div>
-                    <div className="font-bold text-primary text-lg">{bankInfo.amount.toLocaleString('vi-VN')}đ</div>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleCopyAccountInfo(bankInfo.amount.toString())}
-                  >
-                    <Copy className="w-4 h-4" />
-                  </Button>
-                </div>
-
-                <div className="flex justify-between items-start p-3 bg-accent rounded-lg">
-                  <div className="flex-1 min-w-0">
-                    <div className="text-muted-foreground text-xs mb-1">Nội dung chuyển khoản</div>
-                    <div className="font-medium break-words">
-                      {customerInfo.fullName} {customerInfo.email} {planName}-{currentPlan.label}
-                    </div>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="ml-2 flex-shrink-0"
-                    onClick={() => handleCopyAccountInfo(`${customerInfo.fullName} ${customerInfo.email} ${planName}-${currentPlan.label}`)}
-                  >
-                    <Copy className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-
-              <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
-                <p className="text-xs text-amber-800 dark:text-amber-200">
-                  <strong>Lưu ý:</strong> Vui lòng chuyển khoản đúng nội dung để hệ thống tự động xác nhận. Tài khoản sẽ được kích hoạt sau khi được xác minh.
-                </p>
-              </div>
-
-              <Button 
-                className="w-full" 
-                onClick={() => {
-                  setShowQRDialog(false);
-                  toast.info("Tài khoản sẽ được kích hoạt sau khi xác minh thành công", {
-                    description: "Vui lòng kiểm tra email để nhận thông báo khi tài khoản được kích hoạt.",
-                    duration: 5000
-                  });
-                }}
-              >
-                Đã chuyển khoản
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };

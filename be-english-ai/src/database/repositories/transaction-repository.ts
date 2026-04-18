@@ -28,12 +28,12 @@ export interface TransactionSummaryRow {
 }
 
 const SORT_MAP: Record<string, string> = {
-  id: "p.id",
-  amount: "p.amount",
-  status: "p.status",
-  created_at: "p.created_at",
-  user_name: "u.full_name",
-  user_email: "u.email",
+  id: "tt.ThanhToanId",
+  amount: "tt.SoTien",
+  status: "CASE WHEN tt.TrangThaiThanhToan = N'cancelled' THEN N'failed' ELSE tt.TrangThaiThanhToan END",
+  created_at: "tt.NgayTao",
+  user_name: "nd.HoVaTen",
+  user_email: "tk.Email",
 };
 
 export class TransactionRepository extends BaseRepository {
@@ -49,7 +49,7 @@ export class TransactionRepository extends BaseRepository {
       if (input.searchTerm) {
         this.bindInput(request, "searchTerm", sql.NVarChar(255), `%${input.searchTerm}%`);
       }
-      if (input.status) {
+      if (input.status && input.status !== "failed") {
         this.bindInput(request, "status", sql.NVarChar(20), input.status);
       }
       if (input.startDate) {
@@ -61,16 +61,20 @@ export class TransactionRepository extends BaseRepository {
     };
 
     if (input.searchTerm) {
-      parts.push("(u.full_name LIKE @searchTerm OR u.email LIKE @searchTerm OR CAST(p.id AS NVARCHAR(50)) LIKE @searchTerm)");
+      parts.push("(nd.HoVaTen LIKE @searchTerm OR tk.Email LIKE @searchTerm OR CAST(tt.ThanhToanId AS NVARCHAR(50)) LIKE @searchTerm OR tt.MaGiaoDich LIKE @searchTerm)");
     }
     if (input.status) {
-      parts.push("p.status = @status");
+      if (input.status === "failed") {
+        parts.push("tt.TrangThaiThanhToan IN (N'failed', N'cancelled')");
+      } else {
+        parts.push("tt.TrangThaiThanhToan = @status");
+      }
     }
     if (input.startDate) {
-      parts.push("p.created_at >= @startDate");
+      parts.push("tt.NgayTao >= @startDate");
     }
     if (input.endDate) {
-      parts.push("p.created_at < @endDate");
+      parts.push("tt.NgayTao < @endDate");
     }
 
     return {
@@ -100,8 +104,9 @@ export class TransactionRepository extends BaseRepository {
     bind(countReq);
     const countResult = await countReq.query<{ totalCount: number }>(`
       SELECT COUNT(1) AS totalCount
-      FROM dbo.payments p
-      INNER JOIN dbo.users u ON u.id = p.user_id
+      FROM dbo.ThanhToan tt
+      INNER JOIN dbo.NguoiDung nd ON nd.NguoiDungId = tt.NguoiDungId
+      INNER JOIN dbo.TaiKhoan tk ON tk.TaiKhoanId = nd.TaiKhoanId
       ${where}
     `);
 
@@ -110,12 +115,13 @@ export class TransactionRepository extends BaseRepository {
     const summaryResult = await summaryReq.query<TransactionSummaryRow>(`
       SELECT
         COUNT(1) AS TotalCount,
-        ISNULL(SUM(CASE WHEN p.status = N'completed' THEN CAST(p.amount AS FLOAT) ELSE 0 END), 0) AS TotalRevenue,
-        SUM(CASE WHEN p.status = N'completed' THEN 1 ELSE 0 END) AS CompletedCount,
-        SUM(CASE WHEN p.status = N'pending' THEN 1 ELSE 0 END) AS PendingCount,
-        SUM(CASE WHEN p.status = N'failed' THEN 1 ELSE 0 END) AS FailedCount
-      FROM dbo.payments p
-      INNER JOIN dbo.users u ON u.id = p.user_id
+        ISNULL(SUM(CASE WHEN tt.TrangThaiThanhToan = N'completed' THEN CAST(tt.SoTien AS FLOAT) ELSE 0 END), 0) AS TotalRevenue,
+        SUM(CASE WHEN tt.TrangThaiThanhToan = N'completed' THEN 1 ELSE 0 END) AS CompletedCount,
+        SUM(CASE WHEN tt.TrangThaiThanhToan = N'pending' THEN 1 ELSE 0 END) AS PendingCount,
+        SUM(CASE WHEN tt.TrangThaiThanhToan IN (N'failed', N'cancelled') THEN 1 ELSE 0 END) AS FailedCount
+      FROM dbo.ThanhToan tt
+      INNER JOIN dbo.NguoiDung nd ON nd.NguoiDungId = tt.NguoiDungId
+      INNER JOIN dbo.TaiKhoan tk ON tk.TaiKhoanId = nd.TaiKhoanId
       ${where}
     `);
 
@@ -126,16 +132,26 @@ export class TransactionRepository extends BaseRepository {
 
     const rowsResult = await dataReq.query<TransactionRow>(`
       SELECT
-        CAST(p.id AS NVARCHAR(50)) AS Id,
-        CAST(p.user_id AS NVARCHAR(50)) AS UserId,
-        ISNULL(u.full_name, N'') AS UserName,
-        u.email AS UserEmail,
-        CAST(p.amount AS FLOAT) AS Amount,
-        p.status AS Status,
-        p.created_at AS CreatedAt,
-        p.updated_at AS UpdatedAt
-      FROM dbo.payments p
-      INNER JOIN dbo.users u ON u.id = p.user_id
+        CAST(tt.ThanhToanId AS NVARCHAR(50)) AS Id,
+        CAST(tk.TaiKhoanId AS NVARCHAR(50)) AS UserId,
+        ISNULL(nd.HoVaTen, N'') AS UserName,
+        ISNULL(tk.Email, N'') AS UserEmail,
+        CAST(tt.SoTien AS FLOAT) AS Amount,
+        CAST(
+          CASE
+            WHEN tt.TrangThaiThanhToan = N'cancelled' THEN N'failed'
+            ELSE tt.TrangThaiThanhToan
+          END
+          AS NVARCHAR(20)
+        ) AS Status,
+        tt.NgayTao AS CreatedAt,
+        COALESCE(
+          TRY_CAST(JSON_VALUE(tt.ChiTietThanhToanJson, '$.updatedAt') AS DATETIME2(3)),
+          tt.NgayTao
+        ) AS UpdatedAt
+      FROM dbo.ThanhToan tt
+      INNER JOIN dbo.NguoiDung nd ON nd.NguoiDungId = tt.NguoiDungId
+      INNER JOIN dbo.TaiKhoan tk ON tk.TaiKhoanId = nd.TaiKhoanId
       ${where}
       ORDER BY ${sortColumn} ${input.sortOrder.toUpperCase()}
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
@@ -161,21 +177,32 @@ export class TransactionRepository extends BaseRepository {
 
     const result = await request.query<TransactionDetailRow>(`
       SELECT TOP (1)
-        CAST(p.id AS NVARCHAR(50)) AS Id,
-        CAST(p.user_id AS NVARCHAR(50)) AS UserId,
-        ISNULL(u.full_name, N'') AS UserName,
-        u.email AS UserEmail,
-        CAST(p.amount AS FLOAT) AS Amount,
-        p.status AS Status,
-        p.created_at AS CreatedAt,
-        p.updated_at AS UpdatedAt,
-        p.method AS PaymentMethod,
-        p.transaction_history AS TransactionNotes,
-        CASE WHEN p.package_id IS NULL THEN NULL ELSE CAST(p.package_id AS NVARCHAR(50)) END AS PackageId,
-        p.is_lifetime AS IsLifetime
-      FROM dbo.payments p
-      INNER JOIN dbo.users u ON u.id = p.user_id
-      WHERE p.id = @id
+        CAST(tt.ThanhToanId AS NVARCHAR(50)) AS Id,
+        CAST(tk.TaiKhoanId AS NVARCHAR(50)) AS UserId,
+        ISNULL(nd.HoVaTen, N'') AS UserName,
+        ISNULL(tk.Email, N'') AS UserEmail,
+        CAST(tt.SoTien AS FLOAT) AS Amount,
+        CAST(
+          CASE
+            WHEN tt.TrangThaiThanhToan = N'cancelled' THEN N'failed'
+            ELSE tt.TrangThaiThanhToan
+          END
+          AS NVARCHAR(20)
+        ) AS Status,
+        tt.NgayTao AS CreatedAt,
+        COALESCE(
+          TRY_CAST(JSON_VALUE(tt.ChiTietThanhToanJson, '$.updatedAt') AS DATETIME2(3)),
+          tt.NgayTao
+        ) AS UpdatedAt,
+        tt.PhuongThucThanhToan AS PaymentMethod,
+        tt.ChiTietThanhToanJson AS TransactionNotes,
+        CAST(tt.GoiDangKyId AS NVARCHAR(50)) AS PackageId,
+        gd.LaTronDoi AS IsLifetime
+      FROM dbo.ThanhToan tt
+      INNER JOIN dbo.NguoiDung nd ON nd.NguoiDungId = tt.NguoiDungId
+      INNER JOIN dbo.TaiKhoan tk ON tk.TaiKhoanId = nd.TaiKhoanId
+      INNER JOIN dbo.GoiDangKy gd ON gd.GoiDangKyId = tt.GoiDangKyId
+      WHERE tt.ThanhToanId = @id
     `);
 
     return result.recordset[0] ?? null;

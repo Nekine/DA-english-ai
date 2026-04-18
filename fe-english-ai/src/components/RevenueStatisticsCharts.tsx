@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -6,7 +6,6 @@ import {
   Bar,
   PieChart,
   Pie,
-  LineChart,
   Line,
   AreaChart,
   Area,
@@ -22,19 +21,18 @@ import {
 import { 
   DollarSign,
   TrendingUp, 
-  TrendingDown,
   AlertCircle,
   Loader2,
   CheckCircle,
   Clock,
   XCircle,
   CreditCard,
-  Calendar,
   PieChart as PieChartIcon,
 } from 'lucide-react';
-import statisticsService, { RevenuePaymentData } from '@/services/statisticsService';
+import { RevenuePaymentData } from '@/services/statisticsService';
 
 interface RevenueStatisticsChartsProps {
+  data: RevenuePaymentData[];
   loading?: boolean;
 }
 
@@ -57,126 +55,86 @@ const PAYMENT_STATUS_COLORS = {
   failed: COLORS.danger,
 };
 
-export const RevenueStatisticsCharts: React.FC<RevenueStatisticsChartsProps> = ({ loading: parentLoading }) => {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [revenueData, setRevenueData] = useState<RevenuePaymentData[]>([]);
-  const [chartData, setChartData] = useState({
-    monthlyRevenue: [] as { month: string; revenue: number; payments: number }[],
-    revenueByStage: [] as { name: string; value: number; color: string }[],
-    revenueTrend: [] as { month: string; revenue: number; growth: number }[],
-    paymentDistribution: [] as { name: string; value: number; amount: number; color: string }[],
-  });
+export const RevenueStatisticsCharts: React.FC<RevenueStatisticsChartsProps> = ({ data, loading: parentLoading }) => {
+  const chartData = useMemo(() => {
+    const source = Array.isArray(data) ? data : [];
 
-  useEffect(() => {
-    const fetchChartData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await statisticsService.getRevenuePayment();
+    const monthlyRevenue = source.map((item) => {
+      const [year, month] = item.Month.split('-');
+      return {
+        month: year && month ? `${month}/${year}` : item.Month,
+        revenue: item.Revenue / 1000000,
+        payments: item.TotalPayments,
+      };
+    });
 
-        if (!data || data.length === 0) {
-          // Generate empty data for 12 months
-          const emptyData: RevenuePaymentData[] = Array.from({ length: 12 }, (_, i) => ({
-            Month: `T${i + 1}`,
-            Revenue: 0,
-            TotalPayments: 0,
-            PendingAmount: 0,
-            FailedAmount: 0,
-          }));
-          setRevenueData(emptyData);
-        } else {
-          setRevenueData(data);
-        }
+    const totalCompletedAmount = source.reduce((sum, item) => sum + item.Revenue, 0);
+    const totalPendingAmount = source.reduce((sum, item) => sum + item.PendingAmount, 0);
+    const totalFailedAmount = source.reduce((sum, item) => sum + item.FailedAmount, 0);
 
-        // Process data for charts
-        if (data && data.length > 0) {
-          // 1. Monthly Revenue
-          const monthlyData = data.map(item => ({
-            month: item.Month,
-            revenue: item.Revenue / 1000000, // Convert to millions
-            payments: item.TotalPayments,
-          }));
+    const revenueByStage = [
+      {
+        name: 'Đã hoàn thành',
+        value: totalCompletedAmount / 1000000,
+        color: PAYMENT_STATUS_COLORS.completed,
+      },
+      {
+        name: 'Chờ xử lý',
+        value: totalPendingAmount / 1000000,
+        color: PAYMENT_STATUS_COLORS.pending,
+      },
+      {
+        name: 'Thất bại',
+        value: totalFailedAmount / 1000000,
+        color: PAYMENT_STATUS_COLORS.failed,
+      },
+    ].filter((item) => item.value > 0);
 
-          // 2. Revenue by Stage (Completed, Pending, Failed)
-          const totalCompleted = data.reduce((sum, item) => sum + item.Revenue, 0);
-          const totalPending = data.reduce((sum, item) => sum + item.PendingAmount, 0);
-          const totalFailed = data.reduce((sum, item) => sum + item.FailedAmount, 0);
+    const revenueTrend = source.map((item, index) => {
+      const prevRevenue = index > 0 ? source[index - 1].Revenue : item.Revenue;
+      const growth = prevRevenue > 0 ? ((item.Revenue - prevRevenue) / prevRevenue) * 100 : 0;
+      const [year, month] = item.Month.split('-');
+      return {
+        month: year && month ? `${month}/${year}` : item.Month,
+        revenue: item.Revenue / 1000000,
+        growth: parseFloat(growth.toFixed(1)),
+      };
+    });
 
-          const stageData = [
-            { 
-              name: 'Đã hoàn thành', 
-              value: totalCompleted / 1000000, 
-              color: PAYMENT_STATUS_COLORS.completed 
-            },
-            { 
-              name: 'Chờ xử lý', 
-              value: totalPending / 1000000, 
-              color: PAYMENT_STATUS_COLORS.pending 
-            },
-            { 
-              name: 'Thất bại', 
-              value: totalFailed / 1000000, 
-              color: PAYMENT_STATUS_COLORS.failed 
-            },
-          ].filter(item => item.value > 0);
+    const completedPayments = source.reduce((sum, item) => sum + item.CompletedPayments, 0);
+    const pendingPayments = source.reduce((sum, item) => sum + item.PendingPayments, 0);
+    const failedPayments = source.reduce((sum, item) => sum + item.FailedPayments, 0);
 
-          // 3. Revenue Trend (with growth rate)
-          const trendData = data.map((item, index) => {
-            const prevRevenue = index > 0 ? data[index - 1].Revenue : item.Revenue;
-            const growth = prevRevenue > 0 ? ((item.Revenue - prevRevenue) / prevRevenue) * 100 : 0;
-            return {
-              month: item.Month,
-              revenue: item.Revenue / 1000000,
-              growth: parseFloat(growth.toFixed(1)),
-            };
-          });
+    const paymentDistribution = [
+      {
+        name: 'Thanh toán thành công',
+        value: completedPayments,
+        amount: totalCompletedAmount / 1000000,
+        color: PAYMENT_STATUS_COLORS.completed,
+      },
+      {
+        name: 'Thanh toán chờ xử lý',
+        value: pendingPayments,
+        amount: totalPendingAmount / 1000000,
+        color: PAYMENT_STATUS_COLORS.pending,
+      },
+      {
+        name: 'Thanh toán thất bại',
+        value: failedPayments,
+        amount: totalFailedAmount / 1000000,
+        color: PAYMENT_STATUS_COLORS.failed,
+      },
+    ].filter((item) => item.value > 0);
 
-          // 4. Payment Distribution
-          const totalPayments = data.reduce((sum, item) => sum + item.TotalPayments, 0);
-          const completedPayments = data.reduce((sum, item) => sum + item.TotalPayments, 0);
-          const totalPaymentsAmount = totalCompleted + totalPending + totalFailed;
-
-          const distributionData = [
-            {
-              name: 'Thanh toán thành công',
-              value: completedPayments,
-              amount: totalCompleted / 1000000,
-              color: PAYMENT_STATUS_COLORS.completed,
-            },
-            {
-              name: 'Thanh toán chờ xử lý',
-              value: Math.round(totalPayments * (totalPending / totalPaymentsAmount)) || 0,
-              amount: totalPending / 1000000,
-              color: PAYMENT_STATUS_COLORS.pending,
-            },
-            {
-              name: 'Thanh toán thất bại',
-              value: Math.round(totalPayments * (totalFailed / totalPaymentsAmount)) || 0,
-              amount: totalFailed / 1000000,
-              color: PAYMENT_STATUS_COLORS.failed,
-            },
-          ].filter(item => item.value > 0);
-
-          setChartData({
-            monthlyRevenue: monthlyData,
-            revenueByStage: stageData,
-            revenueTrend: trendData,
-            paymentDistribution: distributionData,
-          });
-        }
-      } catch (err) {
-        console.error('Error fetching revenue chart data:', err);
-        setError('Không thể tải dữ liệu biểu đồ doanh thu. Vui lòng thử lại sau.');
-      } finally {
-        setLoading(false);
-      }
+    return {
+      monthlyRevenue,
+      revenueByStage,
+      revenueTrend,
+      paymentDistribution,
     };
+  }, [data]);
 
-    fetchChartData();
-  }, []);
-
-  if (loading || parentLoading) {
+  if (parentLoading) {
     return (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {[1, 2, 3, 4].map(i => (
@@ -192,11 +150,11 @@ export const RevenueStatisticsCharts: React.FC<RevenueStatisticsChartsProps> = (
     );
   }
 
-  if (error) {
+  if (!data || data.length === 0) {
     return (
-      <Alert variant="destructive" className="rounded-xl">
+      <Alert className="rounded-xl">
         <AlertCircle className="h-4 w-4" />
-        <AlertDescription>{error}</AlertDescription>
+        <AlertDescription>Chưa có dữ liệu doanh thu từ bảng ThanhToan để hiển thị biểu đồ.</AlertDescription>
       </Alert>
     );
   }

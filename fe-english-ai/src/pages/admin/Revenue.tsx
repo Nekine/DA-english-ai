@@ -1,13 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
-import { 
-  DollarSign, 
-  TrendingUp, 
-  TrendingDown,
-  AlertCircle, 
-  CreditCard, 
+import {
+  DollarSign,
+  TrendingUp,
+  AlertCircle,
+  CreditCard,
   CheckCircle,
   Clock,
   XCircle,
@@ -15,37 +14,31 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Activity,
-  Plus,
   RefreshCw,
 } from 'lucide-react';
 import statisticsService, { SystemStatistics, RevenuePaymentData } from '@/services/statisticsService';
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { RevenueStatisticsCharts } from '@/components/RevenueStatisticsCharts';
 import TransactionListSection from '@/components/admin/TransactionListSection';
-import { AddPaymentDialog } from '@/components/admin/AddPaymentDialog';
 
 const RevenuePage = () => {
-  // State for statistics from API
   const [statistics, setStatistics] = useState<SystemStatistics | null>(null);
   const [revenueData, setRevenueData] = useState<RevenuePaymentData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [addPaymentOpen, setAddPaymentOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Fetch statistics from API
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
         setError(null);
-        
-        // Fetch both statistics and revenue payment data
+
         const [stats, revenue] = await Promise.all([
           statisticsService.getSystemStatistics(),
           statisticsService.getRevenuePayment(),
         ]);
-        
+
         setStatistics(stats);
         setRevenueData(revenue || []);
       } catch (err) {
@@ -60,74 +53,68 @@ const RevenuePage = () => {
   }, [refreshKey]);
 
   const handleRefresh = () => {
-    setRefreshKey(prev => prev + 1);
+    setRefreshKey((prev) => prev + 1);
   };
 
-  const handlePaymentSuccess = () => {
-    handleRefresh();
-  };
-
-  // Format currency to millions VND
   const formatCurrency = (amount: number): string => {
     const millions = amount / 1000000;
     return `${millions.toFixed(1)}M`;
   };
 
-  // Format full currency
   const formatFullCurrency = (amount: number): string => {
     return amount.toLocaleString('vi-VN') + ' VNĐ';
   };
 
-  // Calculate statistics from revenue data
-  const calculateStats = () => {
-    if (!revenueData || revenueData.length === 0) {
+  const stats = useMemo(() => {
+    if (!revenueData.length) {
       return {
         totalRevenue: 0,
         thisMonthRevenue: 0,
         lastMonthRevenue: 0,
-        totalPending: 0,
-        totalFailed: 0,
+        totalPendingAmount: 0,
+        totalFailedAmount: 0,
         totalPayments: 0,
         completedPayments: 0,
+        pendingPayments: 0,
+        failedPayments: 0,
         growthRate: 0,
       };
     }
 
     const totalRevenue = revenueData.reduce((sum, item) => sum + item.Revenue, 0);
-    const totalPending = revenueData.reduce((sum, item) => sum + item.PendingAmount, 0);
-    const totalFailed = revenueData.reduce((sum, item) => sum + item.FailedAmount, 0);
+    const totalPendingAmount = revenueData.reduce((sum, item) => sum + item.PendingAmount, 0);
+    const totalFailedAmount = revenueData.reduce((sum, item) => sum + item.FailedAmount, 0);
     const totalPayments = revenueData.reduce((sum, item) => sum + item.TotalPayments, 0);
-    
-    // Get this month and last month revenue (last 2 items in array)
-    const thisMonthRevenue = revenueData.length > 0 ? revenueData[revenueData.length - 1].Revenue : 0;
-    const lastMonthRevenue = revenueData.length > 1 ? revenueData[revenueData.length - 2].Revenue : 0;
-    
-    // Calculate growth rate
-    const growthRate = lastMonthRevenue > 0 
-      ? ((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100 
-      : 0;
+    const completedPayments = revenueData.reduce((sum, item) => sum + item.CompletedPayments, 0);
+    const pendingPayments = revenueData.reduce((sum, item) => sum + item.PendingPayments, 0);
+    const failedPayments = revenueData.reduce((sum, item) => sum + item.FailedPayments, 0);
 
-    // Calculate completed payments (approximate)
-    const totalAmount = totalRevenue + totalPending + totalFailed;
-    const completedPayments = totalAmount > 0 
-      ? Math.round(totalPayments * (totalRevenue / totalAmount))
-      : totalPayments;
+    const now = new Date();
+    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const previousMonthKey = `${previousMonth.getFullYear()}-${String(previousMonth.getMonth() + 1).padStart(2, '0')}`;
+
+    const thisMonthRevenue = revenueData.find((item) => item.Month === currentMonthKey)?.Revenue ?? 0;
+    const lastMonthRevenue = revenueData.find((item) => item.Month === previousMonthKey)?.Revenue ?? 0;
+
+    const growthRate = lastMonthRevenue > 0
+      ? ((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100
+      : 0;
 
     return {
       totalRevenue,
       thisMonthRevenue,
       lastMonthRevenue,
-      totalPending,
-      totalFailed,
+      totalPendingAmount,
+      totalFailedAmount,
       totalPayments,
       completedPayments,
+      pendingPayments,
+      failedPayments,
       growthRate,
     };
-  };
+  }, [revenueData]);
 
-  const stats = calculateStats();
-
-  // Revenue metric cards
   const revenueMetrics = [
     {
       label: "Tổng doanh thu",
@@ -155,8 +142,8 @@ const RevenuePage = () => {
       borderColor: "border-blue-200",
       badge: stats.growthRate !== 0 ? (
         <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold ${
-          stats.growthRate > 0 
-            ? 'bg-green-100 text-green-700' 
+          stats.growthRate > 0
+            ? 'bg-green-100 text-green-700'
             : 'bg-red-100 text-red-700'
         }`}>
           {stats.growthRate > 0 ? (
@@ -170,8 +157,8 @@ const RevenuePage = () => {
     },
     {
       label: "Doanh thu chờ xử lý",
-      value: formatCurrency(stats.totalPending),
-      fullValue: formatFullCurrency(stats.totalPending),
+      value: formatCurrency(stats.totalPendingAmount),
+      fullValue: formatFullCurrency(stats.totalPendingAmount),
       note: "Thanh toán đang chờ xác nhận",
       icon: Clock,
       gradient: "from-amber-50 to-orange-50",
@@ -183,8 +170,8 @@ const RevenuePage = () => {
     },
     {
       label: "Doanh thu thất bại",
-      value: formatCurrency(stats.totalFailed),
-      fullValue: formatFullCurrency(stats.totalFailed),
+      value: formatCurrency(stats.totalFailedAmount),
+      fullValue: formatFullCurrency(stats.totalFailedAmount),
       note: "Thanh toán không thành công",
       icon: XCircle,
       gradient: "from-red-50 to-rose-50",
@@ -200,7 +187,7 @@ const RevenuePage = () => {
     {
       label: "Tổng thanh toán",
       value: stats.totalPayments.toLocaleString('vi-VN'),
-      note: "Tất cả giao dịch",
+      note: "Trong 12 tháng gần nhất",
       icon: CreditCard,
       gradient: "from-purple-50 to-violet-50",
       iconBg: "bg-purple-100",
@@ -221,8 +208,8 @@ const RevenuePage = () => {
     },
     {
       label: "Thanh toán chờ",
-      value: (statistics?.PendingPayments || 0).toLocaleString('vi-VN'),
-      note: "Đang chờ xử lý",
+      value: stats.pendingPayments.toLocaleString('vi-VN'),
+      note: `${stats.totalPayments > 0 ? ((stats.pendingPayments / stats.totalPayments) * 100).toFixed(1) : 0}% tổng số`,
       icon: Activity,
       gradient: "from-indigo-50 to-blue-50",
       iconBg: "bg-indigo-100",
@@ -234,7 +221,6 @@ const RevenuePage = () => {
 
   return (
     <div className="space-y-4">
-      {/* Page Header */}
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
@@ -254,18 +240,9 @@ const RevenuePage = () => {
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Làm mới
           </Button>
-          <Button
-            onClick={() => setAddPaymentOpen(true)}
-            size="sm"
-            className="bg-green-600 hover:bg-green-700"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Thêm thanh toán
-          </Button>
         </div>
       </div>
 
-      {/* Error Alert */}
       {error && (
         <Alert variant="destructive" className="rounded-xl">
           <AlertCircle className="h-4 w-4" />
@@ -273,7 +250,6 @@ const RevenuePage = () => {
         </Alert>
       )}
 
-      {/* Revenue Metrics */}
       <div>
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
           <DollarSign className="h-4 w-4 text-green-600" />
@@ -281,7 +257,6 @@ const RevenuePage = () => {
         </h2>
         <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
           {loading ? (
-            // Loading skeleton
             Array.from({ length: 4 }).map((_, i) => (
               <Card key={i} className="rounded-lg bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 animate-pulse">
                 <CardContent className="p-4">
@@ -294,10 +269,10 @@ const RevenuePage = () => {
             revenueMetrics.map((metric, i) => {
               const Icon = metric.icon;
               return (
-                <motion.div 
-                  key={metric.label} 
-                  initial={{ opacity: 0, y: 4 }} 
-                  animate={{ opacity: 1, y: 0 }} 
+                <motion.div
+                  key={metric.label}
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.03 }}
                 >
                   <Card className={`rounded-lg bg-gradient-to-br ${metric.gradient} border ${metric.borderColor} shadow-sm hover:shadow-md transition-all duration-200`}>
@@ -326,7 +301,6 @@ const RevenuePage = () => {
         </div>
       </div>
 
-      {/* Payment Metrics */}
       <div>
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
           <CreditCard className="h-4 w-4 text-purple-600" />
@@ -334,7 +308,6 @@ const RevenuePage = () => {
         </h2>
         <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
           {loading ? (
-            // Loading skeleton
             Array.from({ length: 3 }).map((_, i) => (
               <Card key={i} className="rounded-lg bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 animate-pulse">
                 <CardContent className="p-4">
@@ -347,10 +320,10 @@ const RevenuePage = () => {
             paymentMetrics.map((metric, i) => {
               const Icon = metric.icon;
               return (
-                <motion.div 
-                  key={metric.label} 
-                  initial={{ opacity: 0, y: 4 }} 
-                  animate={{ opacity: 1, y: 0 }} 
+                <motion.div
+                  key={metric.label}
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.03 + 0.12 }}
                 >
                   <Card className={`rounded-lg bg-gradient-to-br ${metric.gradient} border ${metric.borderColor} shadow-sm hover:shadow-md transition-all duration-200`}>
@@ -378,26 +351,17 @@ const RevenuePage = () => {
         </div>
       </div>
 
-      {/* Revenue Statistics Charts */}
       <div>
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
           <TrendingUp className="h-4 w-4 text-blue-600" />
           Biểu đồ Phân tích
         </h2>
-        <RevenueStatisticsCharts loading={loading} />
+        <RevenueStatisticsCharts data={revenueData} loading={loading} />
       </div>
 
-      {/* Transaction List Section */}
       <div>
         <TransactionListSection key={refreshKey} />
       </div>
-
-      {/* Add Payment Dialog */}
-      <AddPaymentDialog
-        open={addPaymentOpen}
-        onOpenChange={setAddPaymentOpen}
-        onSuccess={handlePaymentSuccess}
-      />
     </div>
   );
 };

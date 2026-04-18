@@ -26,6 +26,9 @@ export interface RevenuePaymentData {
   Month: string;
   Revenue: number;
   TotalPayments: number;
+  CompletedPayments: number;
+  PendingPayments: number;
+  FailedPayments: number;
   PendingAmount: number;
   FailedAmount: number;
 }

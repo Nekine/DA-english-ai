@@ -28,6 +28,9 @@ export interface RevenuePaymentDataDto {
   Month: string;
   Revenue: number;
   TotalPayments: number;
+  CompletedPayments: number;
+  PendingPayments: number;
+  FailedPayments: number;
   PendingAmount: number;
   FailedAmount: number;
 }
@@ -57,33 +60,17 @@ function padUserGrowthMonths(rows: UserGrowthRow[]): UserGrowthDataDto[] {
   return normalized;
 }
 
-function padRevenuePaymentMonths(rows: RevenuePaymentRow[]): RevenuePaymentDataDto[] {
-  const byMonth = new Map<number, RevenuePaymentDataDto>();
-
-  for (const row of rows) {
-    byMonth.set(row.MonthNum, {
-      Month: `T${row.MonthNum}`,
-      Revenue: Number(row.Revenue || 0),
-      TotalPayments: row.TotalPayments,
-      PendingAmount: Number(row.PendingAmount || 0),
-      FailedAmount: Number(row.FailedAmount || 0),
-    });
-  }
-
-  const normalized: RevenuePaymentDataDto[] = [];
-  for (let month = 1; month <= 12; month += 1) {
-    normalized.push(
-      byMonth.get(month) ?? {
-        Month: `T${month}`,
-        Revenue: 0,
-        TotalPayments: 0,
-        PendingAmount: 0,
-        FailedAmount: 0,
-      },
-    );
-  }
-
-  return normalized;
+function mapRevenuePaymentMonths(rows: RevenuePaymentRow[]): RevenuePaymentDataDto[] {
+  return rows.map((row) => ({
+    Month: row.Month,
+    Revenue: Number(row.Revenue || 0),
+    TotalPayments: Number(row.TotalPayments || 0),
+    CompletedPayments: Number(row.CompletedPayments || 0),
+    PendingPayments: Number(row.PendingPayments || 0),
+    FailedPayments: Number(row.FailedPayments || 0),
+    PendingAmount: Number(row.PendingAmount || 0),
+    FailedAmount: Number(row.FailedAmount || 0),
+  }));
 }
 
 export async function getSystemStatistics(): Promise<SystemStatisticsDto> {
@@ -118,5 +105,5 @@ export async function getUserGrowth(): Promise<UserGrowthDataDto[]> {
 
 export async function getRevenuePayment(): Promise<RevenuePaymentDataDto[]> {
   const rows = await statisticsRepository.getRevenuePayment();
-  return padRevenuePaymentMonths(rows);
+  return mapRevenuePaymentMonths(rows);
 }

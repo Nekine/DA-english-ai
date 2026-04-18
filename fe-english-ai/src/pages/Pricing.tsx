@@ -66,7 +66,7 @@ const Pricing = () => {
     "1month": [
       {
         name: "Pre 1 tháng",
-        price: "199.000đ",
+        price: "10.000đ",
         period: "/tháng",
         description: "Gói nâng cấp tiêu chuẩn",
         features: ["15 bài tập/ngày", "10 đề thi mỗi tháng", ...commonPremiumFeatures],

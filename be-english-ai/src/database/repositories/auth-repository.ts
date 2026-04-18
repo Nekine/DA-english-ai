@@ -50,10 +50,38 @@ const AUTH_USER_SELECT = `
     END AS role,
     tk.TrangThaiTaiKhoan AS status,
     CASE
+      WHEN COALESCE(sub.hasSubscriptionRecord, CAST(0 AS BIT)) = 1
+        THEN CASE WHEN sub.isSubscriptionActive = 1 THEN N'premium' ELSE N'free' END
       WHEN tk.LoaiTaiKhoan = N'basic' THEN N'free'
       ELSE N'premium'
     END AS accountType,
-    CAST(NULL AS DATETIME2) AS premiumExpiresAt
+    CASE
+      WHEN COALESCE(sub.hasSubscriptionRecord, CAST(0 AS BIT)) = 1 THEN sub.premiumExpiresAt
+      ELSE CAST(NULL AS DATETIME2)
+    END AS premiumExpiresAt
+`;
+
+const AUTH_USER_SUBSCRIPTION_APPLY = `
+  OUTER APPLY (
+    SELECT TOP (1)
+      CAST(1 AS BIT) AS hasSubscriptionRecord,
+      CASE
+        WHEN gd.LaTronDoi = 1 THEN CAST(NULL AS DATETIME2)
+        WHEN gd.ThoiHanThang IS NULL THEN CAST(NULL AS DATETIME2)
+        ELSE DATEADD(MONTH, gd.ThoiHanThang, tt.NgayTao)
+      END AS premiumExpiresAt,
+      CASE
+        WHEN gd.LaTronDoi = 1 THEN CAST(1 AS BIT)
+        WHEN gd.ThoiHanThang IS NULL THEN CAST(0 AS BIT)
+        WHEN DATEADD(MONTH, gd.ThoiHanThang, tt.NgayTao) > SYSDATETIME() THEN CAST(1 AS BIT)
+        ELSE CAST(0 AS BIT)
+      END AS isSubscriptionActive
+    FROM dbo.ThanhToan tt
+    INNER JOIN dbo.GoiDangKy gd ON gd.GoiDangKyId = tt.GoiDangKyId
+    WHERE tt.NguoiDungId = nd.NguoiDungId
+      AND tt.TrangThaiThanhToan = N'completed'
+    ORDER BY tt.NgayTao DESC, tt.ThanhToanId DESC
+  ) sub
 `;
 
 export class AuthRepository extends BaseRepository {
@@ -65,6 +93,7 @@ export class AuthRepository extends BaseRepository {
       ${AUTH_USER_SELECT}
       FROM dbo.TaiKhoan tk
       LEFT JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
+      ${AUTH_USER_SUBSCRIPTION_APPLY}
       WHERE tk.Email = @identity OR tk.TenDangNhap = @identity
     `);
 
@@ -79,6 +108,7 @@ export class AuthRepository extends BaseRepository {
       ${AUTH_USER_SELECT}
       FROM dbo.TaiKhoan tk
       LEFT JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
+      ${AUTH_USER_SUBSCRIPTION_APPLY}
       WHERE tk.TaiKhoanId = @userId
     `);
 
@@ -93,6 +123,7 @@ export class AuthRepository extends BaseRepository {
       ${AUTH_USER_SELECT}
       FROM dbo.TaiKhoan tk
       LEFT JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
+      ${AUTH_USER_SUBSCRIPTION_APPLY}
       WHERE tk.Email = @email
     `);
 
@@ -107,6 +138,7 @@ export class AuthRepository extends BaseRepository {
       ${AUTH_USER_SELECT}
       FROM dbo.TaiKhoan tk
       LEFT JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
+      ${AUTH_USER_SUBSCRIPTION_APPLY}
       WHERE tk.MaGoogle = @providerId
     `);
 
@@ -121,6 +153,7 @@ export class AuthRepository extends BaseRepository {
       ${AUTH_USER_SELECT}
       FROM dbo.TaiKhoan tk
       LEFT JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
+      ${AUTH_USER_SUBSCRIPTION_APPLY}
       WHERE tk.MaFacebook = @providerId
     `);
 

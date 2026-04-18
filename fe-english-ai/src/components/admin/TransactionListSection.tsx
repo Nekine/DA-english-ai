@@ -7,14 +7,13 @@ import TransactionTable from './TransactionTable';
 import TransactionPagination from './TransactionPagination';
 import TransactionDetailModal from './TransactionDetailModal';
 import ExportButton from './ExportButton';
-import paymentService, { Payment } from '@/services/paymentService';
 import transactionService, {
   Transaction,
+  TransactionListResponse,
   TransactionFilters as ITransactionFilters,
   SortConfig,
   PaginationState,
   TransactionSummary,
-  PaymentStatus,
 } from '@/services/transactionService';
 
 const TransactionListSection: React.FC = () => {
@@ -62,45 +61,23 @@ const TransactionListSection: React.FC = () => {
     setError(null);
 
     try {
-      // Try to fetch from new payment API first
-      const statusFilter = filters.status !== 'all' ? filters.status as 'pending' | 'completed' | 'failed' : undefined;
-      const paymentResponse = await paymentService.getAllPayments(
+      const response: TransactionListResponse = await transactionService.fetchTransactions(
         pagination.page,
         pagination.pageSize,
-        statusFilter
+        filters,
+        sortConfig,
+        useCache,
       );
 
-      // Convert Payment[] to Transaction[] format
-      const convertedTransactions: Transaction[] = paymentResponse.payments.map((payment: Payment) => ({
-        Id: payment.id.toString(),
-        UserId: payment.userId.toString(),
-        UserName: payment.fullName || 'N/A',
-        UserEmail: payment.email,
-        Amount: payment.amount,
-        Status: payment.status as PaymentStatus,
-        CreatedAt: payment.createdAt,
-        UpdatedAt: payment.createdAt, // Use CreatedAt as UpdatedAt if not available
-      }));
-
-      setTransactions(convertedTransactions);
+      setTransactions(response.Transactions as Transaction[]);
       setPagination({
-        page: paymentResponse.pagination.currentPage,
-        pageSize: paymentResponse.pagination.pageSize,
-        totalCount: paymentResponse.pagination.totalCount,
-        totalPages: paymentResponse.pagination.totalPages,
+        page: response.Page,
+        pageSize: response.PageSize,
+        totalCount: response.TotalCount,
+        totalPages: response.TotalPages,
       });
 
-      // Calculate summary from payments
-      const completedPayments = convertedTransactions.filter(t => t.Status === 'completed');
-      const totalRevenue = completedPayments.reduce((sum, t) => sum + t.Amount, 0);
-      setSummary({
-        TotalRevenue: totalRevenue,
-        TransactionCount: convertedTransactions.length,
-        AverageTransaction: convertedTransactions.length > 0 ? totalRevenue / convertedTransactions.length : 0,
-        CompletedCount: completedPayments.length,
-        PendingCount: convertedTransactions.filter(t => t.Status === 'pending').length,
-        FailedCount: convertedTransactions.filter(t => t.Status === 'failed').length,
-      });
+      setSummary(response.Summary);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Không thể tải danh sách giao dịch';
       setError(errorMessage);

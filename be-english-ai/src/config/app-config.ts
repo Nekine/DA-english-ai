@@ -23,4 +23,11 @@ export const appConfig = {
       frontendRedirectUri: env.GOOGLE_OAUTH_FRONTEND_REDIRECT_URI,
     },
   },
+  payos: {
+    clientId: env.PAYOS_CLIENT_ID,
+    apiKey: env.PAYOS_API_KEY,
+    checksumKey: env.PAYOS_CHECKSUM_KEY,
+    returnUrl: env.PAYOS_RETURN_URL,
+    cancelUrl: env.PAYOS_CANCEL_URL,
+  },
 } as const;

@@ -54,44 +54,26 @@ async function logDatabaseConnectionStatus(): Promise<void> {
 	}
 }
 
-async function startServerWithRetry(): Promise<void> {
+async function startServer(): Promise<void> {
 	loadApiKeysFromFiles();
 	await logDatabaseConnectionStatus();
 
 	const app = createApp();
-	const basePort = appConfig.port;
-	const maxAttempts = appConfig.env === "production" ? 1 : 10;
-
-	const tryListen = (attempt: number): void => {
-		const port = basePort + attempt;
-		const server = app.listen(port, () => {
-			logger.info("HTTP server started", {
-				env: appConfig.env,
-				port,
-				dbEnabled: appConfig.db.enabled,
-			});
+	const port = appConfig.port;
+	const server = app.listen(port, () => {
+		logger.info("HTTP server started", {
+			env: appConfig.env,
+			port,
+			dbEnabled: appConfig.db.enabled,
 		});
+	});
 
-		server.on("error", (error: NodeJS.ErrnoException) => {
-			const isAddressInUse = error.code === "EADDRINUSE";
-			const hasMoreAttempts = attempt + 1 < maxAttempts;
-
-			if (isAddressInUse && hasMoreAttempts) {
-				logger.warn("Port is in use, retrying with next port", {
-					attemptedPort: port,
-					nextPort: basePort + attempt + 1,
-				});
-				return tryListen(attempt + 1);
-			}
-
-			logger.error("HTTP server startup/runtime error", {
-				message: error.message,
-				stack: error.stack,
-			});
+	server.on("error", (error: NodeJS.ErrnoException) => {
+		logger.error("HTTP server startup/runtime error", {
+			message: error.message,
+			stack: error.stack,
 		});
-	};
-
-	tryListen(0);
+	});
 }
 
-void startServerWithRetry();
+void startServer();

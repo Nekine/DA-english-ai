@@ -15,7 +15,8 @@ export interface PaymentRow {
 }
 
 export interface UserBasicRow {
-  id: number;
+  accountId: number;
+  nguoiDungId: number | null;
   email: string;
   fullName: string | null;
   accountType: string;
@@ -24,116 +25,34 @@ export interface UserBasicRow {
 }
 
 export class PaymentRepository extends BaseRepository {
-  async findUserByEmail(email: string): Promise<UserBasicRow | null> {
-    const request = await this.createRequest();
-    this.bindInput(request, "email", sql.NVarChar(255), email);
-
-    const result = await request.query<UserBasicRow>(`
-      SELECT TOP (1)
-        u.id,
-        u.email,
-        u.full_name AS fullName,
-        u.account_type AS accountType,
-        u.status,
-        u.premium_expires_at AS premiumExpiresAt
-      FROM dbo.users u
-      WHERE u.email = @email
-    `);
-
-    return result.recordset[0] ?? null;
-  }
-
-  async getActivePackageId(): Promise<number | null> {
-    const request = await this.createRequest();
-    const result = await request.query<{ id: number }>(`
-      SELECT TOP (1) p.id
-      FROM dbo.packages p
-      WHERE p.is_active = 1
-      ORDER BY p.id ASC
-    `);
-
-    return result.recordset[0]?.id ?? null;
-  }
-
-  async insertPayment(input: {
-    userId: number;
-    packageId: number | null;
-    amount: number;
-    method: string | null;
-    isLifetime: boolean;
-    note: string | null;
-  }): Promise<void> {
-    const request = await this.createRequest();
-    this.bindInput(request, "userId", sql.Int, input.userId);
-    this.bindInput(request, "packageId", sql.Int, input.packageId);
-    this.bindInput(request, "amount", sql.Decimal(19, 4), input.amount);
-    this.bindInput(request, "method", sql.NVarChar(50), input.method);
-    this.bindInput(request, "isLifetime", sql.Bit, input.isLifetime);
-    this.bindInput(request, "note", sql.NVarChar(sql.MAX), input.note);
-
-    await request.query(`
-      INSERT INTO dbo.payments (
-        user_id,
-        package_id,
-        amount,
-        method,
-        status,
-        is_lifetime,
-        transaction_history,
-        created_at,
-        updated_at
-      )
-      VALUES (
-        @userId,
-        @packageId,
-        @amount,
-        @method,
-        N'completed',
-        @isLifetime,
-        @note,
-        SYSUTCDATETIME(),
-        SYSUTCDATETIME()
-      )
-    `);
-  }
-
-  async updateUserPremium(input: {
-    userId: number;
-    expiresAt: Date | null;
-  }): Promise<void> {
-    const request = await this.createRequest();
-    this.bindInput(request, "userId", sql.Int, input.userId);
-    this.bindInput(request, "expiresAt", sql.DateTime2(3), input.expiresAt);
-
-    await request.query(`
-      UPDATE dbo.users
-      SET account_type = N'premium',
-          premium_expires_at = @expiresAt,
-          updated_at = SYSUTCDATETIME()
-      WHERE id = @userId
-    `);
-  }
-
   async getPayments(input: {
     page: number;
     pageSize: number;
     status?: "pending" | "completed" | "failed";
   }): Promise<{ rows: PaymentRow[]; totalCount: number }> {
     const request = await this.createRequest();
-    const where = input.status ? "WHERE p.status = @status" : "";
+    const statusWhere =
+      input.status === "failed"
+        ? "tt.TrangThaiThanhToan IN (N'failed', N'cancelled')"
+        : input.status
+          ? "tt.TrangThaiThanhToan = @status"
+          : "";
+    const where = statusWhere ? `WHERE ${statusWhere}` : "";
 
-    if (input.status) {
+    if (input.status && input.status !== "failed") {
       this.bindInput(request, "status", sql.NVarChar(20), input.status);
     }
 
     const countResult = await request.query<{ totalCount: number }>(`
       SELECT COUNT(1) AS totalCount
-      FROM dbo.payments p
+      FROM dbo.ThanhToan tt
+      INNER JOIN dbo.NguoiDung nd ON nd.NguoiDungId = tt.NguoiDungId
+      INNER JOIN dbo.TaiKhoan tk ON tk.TaiKhoanId = nd.TaiKhoanId
       ${where}
     `);
 
     const dataRequest = await this.createRequest();
-    if (input.status) {
+    if (input.status && input.status !== "failed") {
       this.bindInput(dataRequest, "status", sql.NVarChar(20), input.status);
     }
 
@@ -142,20 +61,28 @@ export class PaymentRepository extends BaseRepository {
 
     const rowsResult = await dataRequest.query<PaymentRow>(`
       SELECT
-        p.id,
-        p.user_id AS userId,
-        u.email,
-        u.full_name AS fullName,
-        CAST(p.amount AS FLOAT) AS amount,
-        p.method,
-        p.status,
-        p.is_lifetime AS isLifetime,
-        u.account_type AS accountType,
-        p.created_at AS createdAt
-      FROM dbo.payments p
-      INNER JOIN dbo.users u ON u.id = p.user_id
+        tt.ThanhToanId AS id,
+        tk.TaiKhoanId AS userId,
+        tk.Email AS email,
+        nd.HoVaTen AS fullName,
+        CAST(tt.SoTien AS FLOAT) AS amount,
+        tt.PhuongThucThanhToan AS method,
+        CAST(
+          CASE
+            WHEN tt.TrangThaiThanhToan = N'cancelled' THEN N'failed'
+            ELSE tt.TrangThaiThanhToan
+          END
+          AS NVARCHAR(20)
+        ) AS status,
+        gd.LaTronDoi AS isLifetime,
+        CAST(tk.LoaiTaiKhoan AS NVARCHAR(20)) AS accountType,
+        tt.NgayTao AS createdAt
+      FROM dbo.ThanhToan tt
+      INNER JOIN dbo.NguoiDung nd ON nd.NguoiDungId = tt.NguoiDungId
+      INNER JOIN dbo.TaiKhoan tk ON tk.TaiKhoanId = nd.TaiKhoanId
+      INNER JOIN dbo.GoiDangKy gd ON gd.GoiDangKyId = tt.GoiDangKyId
       ${where}
-      ORDER BY p.created_at DESC
+      ORDER BY tt.NgayTao DESC
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
     `);
 
@@ -171,43 +98,57 @@ export class PaymentRepository extends BaseRepository {
 
     const accountTypeFilter =
       packageType === "max"
-        ? "u.account_type = N'max'"
+        ? "tk.LoaiTaiKhoan = N'max'"
         : packageType === "pre"
-          ? "u.account_type IN (N'premium', N'pre')"
-          : "u.account_type IN (N'premium', N'pre', N'max')";
+          ? "tk.LoaiTaiKhoan IN (N'premium', N'pre')"
+          : "tk.LoaiTaiKhoan IN (N'premium', N'pre', N'max')";
 
     const result = await request.query<UserBasicRow>(`
       SELECT
-        u.id,
-        u.email,
-        u.full_name AS fullName,
-        u.account_type AS accountType,
-        u.status,
-        u.premium_expires_at AS premiumExpiresAt
-      FROM dbo.users u
+        tk.TaiKhoanId AS accountId,
+        nd.NguoiDungId AS nguoiDungId,
+        tk.Email AS email,
+        nd.HoVaTen AS fullName,
+        CAST(tk.LoaiTaiKhoan AS NVARCHAR(20)) AS accountType,
+        CAST(tk.TrangThaiTaiKhoan AS NVARCHAR(20)) AS status,
+        sub.premiumExpiresAt
+      FROM dbo.TaiKhoan tk
+      INNER JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
+      OUTER APPLY (
+        SELECT TOP (1)
+          CASE
+            WHEN gd.LaTronDoi = 1 THEN CAST(NULL AS DATETIME2)
+            WHEN gd.ThoiHanThang IS NULL THEN CAST(NULL AS DATETIME2)
+            ELSE DATEADD(MONTH, gd.ThoiHanThang, tt.NgayTao)
+          END AS premiumExpiresAt
+        FROM dbo.ThanhToan tt
+        INNER JOIN dbo.GoiDangKy gd ON gd.GoiDangKyId = tt.GoiDangKyId
+        WHERE tt.NguoiDungId = nd.NguoiDungId
+          AND tt.TrangThaiThanhToan = N'completed'
+        ORDER BY tt.NgayTao DESC, tt.ThanhToanId DESC
+      ) sub
       WHERE ${accountTypeFilter}
-        AND u.status = N'active'
-        AND u.premium_expires_at IS NOT NULL
-        AND u.premium_expires_at <= @now
+        AND tk.TrangThaiTaiKhoan = N'active'
+        AND sub.premiumExpiresAt IS NOT NULL
+        AND sub.premiumExpiresAt <= @now
     `);
 
     return result.recordset;
   }
 
-  async downgradeUsersToFree(userIds: number[]): Promise<number> {
-    if (userIds.length === 0) {
+  async downgradeUsersToFree(accountIds: number[]): Promise<number> {
+    if (accountIds.length === 0) {
       return 0;
     }
 
     const request = await this.createRequest();
-    this.bindInput(request, "idsJson", sql.NVarChar(sql.MAX), JSON.stringify(userIds));
+    this.bindInput(request, "idsJson", sql.NVarChar(sql.MAX), JSON.stringify(accountIds));
 
     const result = await request.query(`
-      UPDATE dbo.users
-      SET account_type = N'free',
-          premium_expires_at = NULL,
-          updated_at = SYSUTCDATETIME()
-      WHERE id IN (
+      UPDATE dbo.TaiKhoan
+      SET LoaiTaiKhoan = N'basic',
+          NgayCapNhat = SYSDATETIME()
+      WHERE TaiKhoanId IN (
         SELECT TRY_CAST([value] AS INT)
         FROM OPENJSON(@idsJson)
       )
@@ -223,26 +164,41 @@ export class PaymentRepository extends BaseRepository {
 
     const accountTypeFilter =
       packageType === "max"
-        ? "u.account_type = N'max'"
+        ? "tk.LoaiTaiKhoan = N'max'"
         : packageType === "pre"
-          ? "u.account_type IN (N'premium', N'pre')"
-          : "u.account_type IN (N'premium', N'pre', N'max')";
+          ? "tk.LoaiTaiKhoan IN (N'premium', N'pre')"
+          : "tk.LoaiTaiKhoan IN (N'premium', N'pre', N'max')";
 
     const result = await request.query<UserBasicRow>(`
       SELECT
-        u.id,
-        u.email,
-        u.full_name AS fullName,
-        u.account_type AS accountType,
-        u.status,
-        u.premium_expires_at AS premiumExpiresAt
-      FROM dbo.users u
+        tk.TaiKhoanId AS accountId,
+        nd.NguoiDungId AS nguoiDungId,
+        tk.Email AS email,
+        nd.HoVaTen AS fullName,
+        CAST(tk.LoaiTaiKhoan AS NVARCHAR(20)) AS accountType,
+        CAST(tk.TrangThaiTaiKhoan AS NVARCHAR(20)) AS status,
+        sub.premiumExpiresAt
+      FROM dbo.TaiKhoan tk
+      INNER JOIN dbo.NguoiDung nd ON nd.TaiKhoanId = tk.TaiKhoanId
+      OUTER APPLY (
+        SELECT TOP (1)
+          CASE
+            WHEN gd.LaTronDoi = 1 THEN CAST(NULL AS DATETIME2)
+            WHEN gd.ThoiHanThang IS NULL THEN CAST(NULL AS DATETIME2)
+            ELSE DATEADD(MONTH, gd.ThoiHanThang, tt.NgayTao)
+          END AS premiumExpiresAt
+        FROM dbo.ThanhToan tt
+        INNER JOIN dbo.GoiDangKy gd ON gd.GoiDangKyId = tt.GoiDangKyId
+        WHERE tt.NguoiDungId = nd.NguoiDungId
+          AND tt.TrangThaiThanhToan = N'completed'
+        ORDER BY tt.NgayTao DESC, tt.ThanhToanId DESC
+      ) sub
       WHERE ${accountTypeFilter}
-        AND u.status = N'active'
-        AND u.premium_expires_at IS NOT NULL
-        AND u.premium_expires_at > @now
-        AND u.premium_expires_at <= @endDate
-      ORDER BY u.premium_expires_at ASC
+        AND tk.TrangThaiTaiKhoan = N'active'
+        AND sub.premiumExpiresAt IS NOT NULL
+        AND sub.premiumExpiresAt > @now
+        AND sub.premiumExpiresAt <= @endDate
+      ORDER BY sub.premiumExpiresAt ASC
     `);
 
     return result.recordset;

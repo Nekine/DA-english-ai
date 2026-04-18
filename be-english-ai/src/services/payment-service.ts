@@ -2,70 +2,6 @@ import { PaymentRepository } from "../database/repositories/payment-repository";
 
 const paymentRepository = new PaymentRepository();
 
-export async function checkEmail(email: string) {
-  const user = await paymentRepository.findUserByEmail(email.trim().toLowerCase());
-  if (!user) {
-    return { exists: false };
-  }
-
-  return {
-    exists: true,
-    userId: user.id,
-    email: user.email,
-    fullName: user.fullName,
-    accountType: user.accountType,
-    status: user.status,
-  };
-}
-
-export async function addManualPayment(input: {
-  email: string;
-  amount: number;
-  method?: string;
-  isLifetime: boolean;
-  durationMonths?: number;
-  note?: string;
-}) {
-  const user = await paymentRepository.findUserByEmail(input.email.trim().toLowerCase());
-  if (!user) {
-    return {
-      statusCode: 404,
-      body: { message: `Khong tim thay user voi email: ${input.email}` },
-    } as const;
-  }
-
-  const packageId = await paymentRepository.getActivePackageId();
-  await paymentRepository.insertPayment({
-    userId: user.id,
-    packageId,
-    amount: Number(input.amount || 0),
-    method: input.method ?? "Manual",
-    isLifetime: Boolean(input.isLifetime),
-    note: input.note ?? "Manual payment by admin",
-  });
-
-  const expiresAt = !input.isLifetime && (input.durationMonths ?? 0) > 0
-    ? new Date(Date.now() + (input.durationMonths as number) * 30 * 86400000)
-    : null;
-
-  await paymentRepository.updateUserPremium({ userId: user.id, expiresAt });
-
-  return {
-    statusCode: 200,
-    body: {
-      success: true,
-      message: "Da them thanh toan va nang cap tai khoan thanh cong",
-      userId: user.id,
-      email: user.email,
-      previousAccountType: user.accountType,
-      newAccountType: "premium",
-      amount: Number(input.amount || 0),
-      isLifetime: Boolean(input.isLifetime),
-      expiresAt: expiresAt ? expiresAt.toISOString() : null,
-    },
-  } as const;
-}
-
 export async function getAllPayments(input: {
   page: number;
   pageSize: number;
@@ -98,7 +34,7 @@ export async function getAllPayments(input: {
 export async function checkExpiredPremium(packageType: "all" | "pre" | "max" = "all") {
   const now = new Date();
   const expiredUsers = await paymentRepository.getExpiredPremiumUsers(now, packageType);
-  const downgraded = await paymentRepository.downgradeUsersToFree(expiredUsers.map((u) => u.id));
+  const downgraded = await paymentRepository.downgradeUsersToFree(expiredUsers.map((u) => u.accountId));
 
   const packageLabel = packageType === "max" ? "max" : packageType === "pre" ? "pre" : "tra phi";
 
@@ -109,7 +45,7 @@ export async function checkExpiredPremium(packageType: "all" | "pre" | "max" = "
     totalChecked: expiredUsers.length,
     totalDowngraded: downgraded,
     expiredUsers: expiredUsers.map((u) => ({
-      userId: u.id,
+      userId: u.accountId,
       email: u.email,
       fullName: u.fullName ?? "",
       accountType: u.accountType,
@@ -131,7 +67,7 @@ export async function getExpiringSoonUsers(days: number, packageType: "all" | "p
       const expiresAt = u.premiumExpiresAt ?? now;
       const daysRemaining = Math.max(0, Math.ceil((expiresAt.getTime() - now.getTime()) / 86400000));
       return {
-        userId: u.id,
+        userId: u.accountId,
         email: u.email,
         fullName: u.fullName ?? "",
         accountType: u.accountType,

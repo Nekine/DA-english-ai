@@ -1,14 +1,5 @@
 import apiService from './api';
 
-export interface ManualPaymentRequest {
-  email: string;
-  amount: number;
-  method?: string;
-  isLifetime: boolean;
-  durationMonths?: number;
-  note?: string;
-}
-
 export interface Payment {
   id: number;
   userId: number;
@@ -32,37 +23,37 @@ export interface PaymentListResponse {
   };
 }
 
+export type PaymentPlanTier = 'pre' | 'max';
+export type PaymentPlanCycle = '1month' | '6months' | '1year';
+
+export interface CreatePayosPaymentRequest {
+  tier: PaymentPlanTier;
+  cycle: PaymentPlanCycle;
+  fullName: string;
+  email: string;
+  phone: string;
+}
+
+export interface CreatePayosPaymentResponse {
+  success: boolean;
+  orderCode: number;
+  paymentLinkId: string;
+  checkoutUrl: string;
+  qrCode: string;
+  amount: number;
+}
+
+export interface PayosOrderStatusResponse {
+  success: boolean;
+  orderCode: string;
+  status: 'pending' | 'completed' | 'failed' | 'cancelled';
+  amount: number;
+  tier: PaymentPlanTier;
+  cycle: PaymentPlanCycle;
+  packageName: string;
+}
+
 const paymentService = {
-  /**
-   * Check if email exists in system
-   */
-  checkEmail: async (email: string): Promise<{
-    exists: boolean;
-    userId?: number;
-    email?: string;
-    fullName?: string;
-    accountType?: string;
-    status?: string;
-  }> => {
-    const response = await apiService.get(`/api/payment/check-email?email=${encodeURIComponent(email)}`);
-    return response as {
-      exists: boolean;
-      userId?: number;
-      email?: string;
-      fullName?: string;
-      accountType?: string;
-      status?: string;
-    };
-  },
-
-  /**
-   * Add manual payment and upgrade user to premium
-   */
-  addManualPayment: async (data: ManualPaymentRequest) => {
-    const response = await apiService.post('/api/payment/manual-payment', data);
-    return response;
-  },
-
   /**
    * Get all payments with pagination and filtering
    */
@@ -98,6 +89,22 @@ const paymentService = {
   getExpiringSoonUsers: async (days: number = 7, packageType: 'all' | 'pre' | 'max' = 'all'): Promise<ExpiringSoonResponse> => {
     const response = await apiService.get(`/api/payment/expiring-soon?days=${days}&packageType=${packageType}`);
     return response as ExpiringSoonResponse;
+  },
+
+  /**
+   * Create a PayOS payment link for current authenticated user
+   */
+  createPayosPaymentLink: async (data: CreatePayosPaymentRequest): Promise<CreatePayosPaymentResponse> => {
+    const response = await apiService.post('/api/payment/payos/create-link', data);
+    return response as CreatePayosPaymentResponse;
+  },
+
+  /**
+   * Get payment order status for current authenticated user
+   */
+  getPayosOrderStatus: async (orderCode: string): Promise<PayosOrderStatusResponse> => {
+    const response = await apiService.get(`/api/payment/payos/order/${encodeURIComponent(orderCode)}`);
+    return response as PayosOrderStatusResponse;
   },
 };
 
