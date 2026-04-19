@@ -117,6 +117,7 @@ class ExportService {
         'ID Giao dịch',
         'Tên người dùng',
         'Email',
+        'Tên gói đăng ký',
         'Số tiền',
         'Số tiền (VNĐ)',
         'Trạng thái',
@@ -127,6 +128,7 @@ class ExportService {
         transaction.Id,
         transaction.UserName || 'N/A',
         transaction.UserEmail,
+        transaction.PackageName || 'N/A',
         transaction.Amount,
         this.formatCurrency(transaction.Amount),
         this.getStatusLabel(transaction.Status),
@@ -150,6 +152,7 @@ class ExportService {
         { wch: 12 }, // ID
         { wch: 25 }, // Name
         { wch: 30 }, // Email
+        { wch: 25 }, // Package
         { wch: 15 }, // Amount (number)
         { wch: 20 }, // Amount (formatted)
         { wch: 18 }, // Status
@@ -187,6 +190,7 @@ class ExportService {
         'ID Giao dịch',
         'Tên người dùng',
         'Email',
+        'Tên gói đăng ký',
         'Số tiền (VNĐ)',
         'Trạng thái',
         'Ngày tạo',
@@ -197,6 +201,7 @@ class ExportService {
         transaction.Id,
         transaction.UserName || 'N/A',
         transaction.UserEmail,
+        transaction.PackageName || 'N/A',
         transaction.Amount,
         this.getStatusLabel(transaction.Status),
         this.formatDate(transaction.CreatedAt),
@@ -349,6 +354,7 @@ class ExportService {
                 <th>ID</th>
                 <th>Người dùng</th>
                 <th>Email</th>
+                <th>Tên gói đăng ký</th>
                 <th>Số tiền</th>
                 <th>Trạng thái</th>
                 <th>Ngày tạo</th>
@@ -362,6 +368,7 @@ class ExportService {
                   <td>${t.Id}</td>
                   <td>${t.UserName || 'N/A'}</td>
                   <td>${t.UserEmail}</td>
+                  <td>${t.PackageName || 'N/A'}</td>
                   <td>${this.formatCurrency(t.Amount)}</td>
                   <td class="status-${t.Status}">${this.getStatusLabel(t.Status)}</td>
                   <td>${this.formatDate(t.CreatedAt)}</td>

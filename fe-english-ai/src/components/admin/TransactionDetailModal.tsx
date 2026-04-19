@@ -178,7 +178,7 @@ const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                 label="Gói dịch vụ"
                 value={
                   <div className="flex items-center gap-2">
-                    <span>Gói #{transaction.PackageId}</span>
+                    <span>{transaction.PackageName || (transaction.PackageId ? `Gói #${transaction.PackageId}` : 'N/A')}</span>
                     {transaction.IsLifetime && (
                       <Badge variant="secondary" className="text-xs">
                         Vĩnh viễn

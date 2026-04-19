@@ -55,6 +55,20 @@ const PAYMENT_STATUS_COLORS = {
   failed: COLORS.danger,
 };
 
+const formatVnd = (amount: number): string => {
+  return new Intl.NumberFormat('vi-VN', {
+    style: 'currency',
+    currency: 'VND',
+    maximumFractionDigits: 0,
+  }).format(amount);
+};
+
+const formatNumber = (value: number): string => {
+  return new Intl.NumberFormat('vi-VN', {
+    maximumFractionDigits: 0,
+  }).format(value);
+};
+
 export const RevenueStatisticsCharts: React.FC<RevenueStatisticsChartsProps> = ({ data, loading: parentLoading }) => {
   const chartData = useMemo(() => {
     const source = Array.isArray(data) ? data : [];
@@ -63,7 +77,7 @@ export const RevenueStatisticsCharts: React.FC<RevenueStatisticsChartsProps> = (
       const [year, month] = item.Month.split('-');
       return {
         month: year && month ? `${month}/${year}` : item.Month,
-        revenue: item.Revenue / 1000000,
+        revenue: item.Revenue,
         payments: item.TotalPayments,
       };
     });
@@ -75,28 +89,36 @@ export const RevenueStatisticsCharts: React.FC<RevenueStatisticsChartsProps> = (
     const revenueByStage = [
       {
         name: 'Đã hoàn thành',
-        value: totalCompletedAmount / 1000000,
+        value: totalCompletedAmount,
         color: PAYMENT_STATUS_COLORS.completed,
       },
       {
         name: 'Chờ xử lý',
-        value: totalPendingAmount / 1000000,
+        value: totalPendingAmount,
         color: PAYMENT_STATUS_COLORS.pending,
       },
       {
         name: 'Thất bại',
-        value: totalFailedAmount / 1000000,
+        value: totalFailedAmount,
         color: PAYMENT_STATUS_COLORS.failed,
       },
     ].filter((item) => item.value > 0);
 
     const revenueTrend = source.map((item, index) => {
       const prevRevenue = index > 0 ? source[index - 1].Revenue : item.Revenue;
-      const growth = prevRevenue > 0 ? ((item.Revenue - prevRevenue) / prevRevenue) * 100 : 0;
+      let growth = 0;
+
+      if (prevRevenue > 0) {
+        growth = ((item.Revenue - prevRevenue) / prevRevenue) * 100;
+      } else if (item.Revenue > 0) {
+        // Treat transition from 0 to positive revenue as positive growth.
+        growth = 100;
+      }
+
       const [year, month] = item.Month.split('-');
       return {
         month: year && month ? `${month}/${year}` : item.Month,
-        revenue: item.Revenue / 1000000,
+        revenue: item.Revenue,
         growth: parseFloat(growth.toFixed(1)),
       };
     });
@@ -109,19 +131,19 @@ export const RevenueStatisticsCharts: React.FC<RevenueStatisticsChartsProps> = (
       {
         name: 'Thanh toán thành công',
         value: completedPayments,
-        amount: totalCompletedAmount / 1000000,
+        amount: totalCompletedAmount,
         color: PAYMENT_STATUS_COLORS.completed,
       },
       {
         name: 'Thanh toán chờ xử lý',
         value: pendingPayments,
-        amount: totalPendingAmount / 1000000,
+        amount: totalPendingAmount,
         color: PAYMENT_STATUS_COLORS.pending,
       },
       {
         name: 'Thanh toán thất bại',
         value: failedPayments,
-        amount: totalFailedAmount / 1000000,
+        amount: totalFailedAmount,
         color: PAYMENT_STATUS_COLORS.failed,
       },
     ].filter((item) => item.value > 0);
@@ -182,7 +204,11 @@ export const RevenueStatisticsCharts: React.FC<RevenueStatisticsChartsProps> = (
           {payload.map((entry, index) => (
             <p key={index} className="text-sm text-gray-600 dark:text-gray-400">
               {entry.name || entry.dataKey}: <span className="font-bold text-lg bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
-                {entry.dataKey === 'growth' ? `${entry.value}%` : `${entry.value.toFixed(1)}M VNĐ`}
+                {entry.dataKey === 'growth'
+                  ? `${entry.value}%`
+                  : entry.dataKey === 'payments'
+                    ? formatNumber(entry.value)
+                    : formatVnd(entry.value)}
               </span>
             </p>
           ))}
@@ -217,7 +243,7 @@ export const RevenueStatisticsCharts: React.FC<RevenueStatisticsChartsProps> = (
             Số lượng: <span className="font-bold text-blue-600">{data.value || 0}</span>
           </p>
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            Doanh thu: <span className="font-bold text-green-600">{data.amount ? data.amount.toFixed(1) : '0'}M VNĐ</span>
+            Doanh thu: <span className="font-bold text-green-600">{formatVnd(data.amount || 0)}</span>
           </p>
         </div>
       );
@@ -263,7 +289,8 @@ export const RevenueStatisticsCharts: React.FC<RevenueStatisticsChartsProps> = (
                   yAxisId="left"
                   stroke="#6b7280"
                   style={{ fontSize: '12px', fontWeight: '600' }}
-                  label={{ value: 'Doanh thu (M VNĐ)', angle: -90, position: 'insideLeft', style: { fontSize: '11px' } }}
+                  tickFormatter={formatNumber}
+                  label={{ value: 'Doanh thu (VNĐ)', angle: -90, position: 'insideLeft', style: { fontSize: '11px' } }}
                 />
                 <YAxis 
                   yAxisId="right"
@@ -288,7 +315,7 @@ export const RevenueStatisticsCharts: React.FC<RevenueStatisticsChartsProps> = (
                   dataKey="revenue" 
                   stroke={COLORS.success}
                   strokeWidth={3}
-                  name="Doanh thu (M VNĐ)"
+                  name="Doanh thu (VNĐ)"
                   dot={{ fill: COLORS.success, r: 5 }}
                 />
               </ComposedChart>
@@ -329,7 +356,7 @@ export const RevenueStatisticsCharts: React.FC<RevenueStatisticsChartsProps> = (
                   ))}
                 </Pie>
                 <Tooltip 
-                  formatter={(value: number) => `${value.toFixed(1)}M VNĐ`}
+                  formatter={(value: number) => formatVnd(value)}
                 />
               </PieChart>
             </ResponsiveContainer>
@@ -343,7 +370,7 @@ export const RevenueStatisticsCharts: React.FC<RevenueStatisticsChartsProps> = (
                     style={{ backgroundColor: item.color }}
                   />
                   <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {item.name}: <span className="font-bold text-gray-900 dark:text-white">{item.value.toFixed(1)}M</span>
+                    {item.name}: <span className="font-bold text-gray-900 dark:text-white">{formatVnd(item.value)}</span>
                   </span>
                 </div>
               ))}
@@ -388,7 +415,8 @@ export const RevenueStatisticsCharts: React.FC<RevenueStatisticsChartsProps> = (
                   yAxisId="left"
                   stroke="#6b7280"
                   style={{ fontSize: '12px', fontWeight: '600' }}
-                  label={{ value: 'Doanh thu (M VNĐ)', angle: -90, position: 'insideLeft', style: { fontSize: '11px' } }}
+                  tickFormatter={formatNumber}
+                  label={{ value: 'Doanh thu (VNĐ)', angle: -90, position: 'insideLeft', style: { fontSize: '11px' } }}
                 />
                 <YAxis 
                   yAxisId="right"
@@ -407,7 +435,7 @@ export const RevenueStatisticsCharts: React.FC<RevenueStatisticsChartsProps> = (
                   strokeWidth={2}
                   fillOpacity={1} 
                   fill="url(#colorRevenueTrend)" 
-                  name="Doanh thu (M VNĐ)"
+                  name="Doanh thu (VNĐ)"
                 />
                 <Line 
                   yAxisId="right"

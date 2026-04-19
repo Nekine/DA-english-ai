@@ -76,7 +76,7 @@ const TransactionFilters: React.FC<TransactionFiltersProps> = ({
             <Input
               id="search"
               type="text"
-              placeholder="Tên, email, hoặc ID..."
+              placeholder="Tên, email, tên gói hoặc ID..."
               value={filters.searchTerm || ''}
               onChange={(e) => handleSearchChange(e.target.value)}
               className="pl-9"

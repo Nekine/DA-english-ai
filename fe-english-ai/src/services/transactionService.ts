@@ -6,6 +6,7 @@ export interface Transaction {
   UserId: string;
   UserName: string;
   UserEmail: string;
+  PackageName: string;
   Amount: number;
   Status: PaymentStatus;
   CreatedAt: string;

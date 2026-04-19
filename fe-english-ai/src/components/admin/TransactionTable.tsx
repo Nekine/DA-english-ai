@@ -126,6 +126,7 @@ const TransactionTable: React.FC<TransactionTableProps> = ({
             <SortableHeader column="id" label="ID" />
             <SortableHeader column="user_name" label="Người dùng" />
             <SortableHeader column="user_email" label="Email" />
+            <SortableHeader column="package_name" label="Tên gói đăng ký" />
             <SortableHeader column="amount" label="Số tiền" />
             <SortableHeader column="status" label="Trạng thái" />
             <SortableHeader column="created_at" label="Ngày tạo" />
@@ -143,6 +144,7 @@ const TransactionTable: React.FC<TransactionTableProps> = ({
               <TableCell className="text-muted-foreground">
                 {transaction.UserEmail}
               </TableCell>
+              <TableCell>{transaction.PackageName || 'N/A'}</TableCell>
               <TableCell className="font-semibold">
                 {formatCurrency(transaction.Amount)}
               </TableCell>

@@ -57,12 +57,15 @@ const RevenuePage = () => {
   };
 
   const formatCurrency = (amount: number): string => {
-    const millions = amount / 1000000;
-    return `${millions.toFixed(1)}M`;
+    return amount.toLocaleString('vi-VN');
   };
 
   const formatFullCurrency = (amount: number): string => {
-    return amount.toLocaleString('vi-VN') + ' VNĐ';
+    return new Intl.NumberFormat('vi-VN', {
+      style: 'currency',
+      currency: 'VND',
+      maximumFractionDigits: 0,
+    }).format(amount);
   };
 
   const stats = useMemo(() => {
@@ -97,9 +100,12 @@ const RevenuePage = () => {
     const thisMonthRevenue = revenueData.find((item) => item.Month === currentMonthKey)?.Revenue ?? 0;
     const lastMonthRevenue = revenueData.find((item) => item.Month === previousMonthKey)?.Revenue ?? 0;
 
-    const growthRate = lastMonthRevenue > 0
-      ? ((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100
-      : 0;
+    let growthRate = 0;
+    if (lastMonthRevenue > 0) {
+      growthRate = ((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100;
+    } else if (thisMonthRevenue > 0) {
+      growthRate = 100;
+    }
 
     return {
       totalRevenue,

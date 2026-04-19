@@ -450,6 +450,10 @@ CREATE INDEX IX_ThanhToan_GoiDangKyId ON dbo.ThanhToan(GoiDangKyId);
 CREATE INDEX IX_ThanhToan_TrangThaiThanhToan ON dbo.ThanhToan(TrangThaiThanhToan);
 GO
 
+select * from dbo.GoiDangKy
+select * from dbo.ThanhToan
+select * from dbo.TaiKhoan
+
 /* =========================================================
    11) TỪ VỰNG / TỪ ĐIỂN
    ========================================================= */

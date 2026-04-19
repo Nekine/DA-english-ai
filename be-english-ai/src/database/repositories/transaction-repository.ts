@@ -6,6 +6,7 @@ export interface TransactionRow {
   UserId: string;
   UserName: string;
   UserEmail: string;
+  PackageName: string;
   Amount: number;
   Status: string;
   CreatedAt: Date;
@@ -34,6 +35,7 @@ const SORT_MAP: Record<string, string> = {
   created_at: "tt.NgayTao",
   user_name: "nd.HoVaTen",
   user_email: "tk.Email",
+  package_name: "gd.TenGoi",
 };
 
 export class TransactionRepository extends BaseRepository {
@@ -61,7 +63,7 @@ export class TransactionRepository extends BaseRepository {
     };
 
     if (input.searchTerm) {
-      parts.push("(nd.HoVaTen LIKE @searchTerm OR tk.Email LIKE @searchTerm OR CAST(tt.ThanhToanId AS NVARCHAR(50)) LIKE @searchTerm OR tt.MaGiaoDich LIKE @searchTerm)");
+      parts.push("(nd.HoVaTen LIKE @searchTerm OR tk.Email LIKE @searchTerm OR gd.TenGoi LIKE @searchTerm OR CAST(tt.ThanhToanId AS NVARCHAR(50)) LIKE @searchTerm OR tt.MaGiaoDich LIKE @searchTerm)");
     }
     if (input.status) {
       if (input.status === "failed") {
@@ -107,6 +109,7 @@ export class TransactionRepository extends BaseRepository {
       FROM dbo.ThanhToan tt
       INNER JOIN dbo.NguoiDung nd ON nd.NguoiDungId = tt.NguoiDungId
       INNER JOIN dbo.TaiKhoan tk ON tk.TaiKhoanId = nd.TaiKhoanId
+      INNER JOIN dbo.GoiDangKy gd ON gd.GoiDangKyId = tt.GoiDangKyId
       ${where}
     `);
 
@@ -122,6 +125,7 @@ export class TransactionRepository extends BaseRepository {
       FROM dbo.ThanhToan tt
       INNER JOIN dbo.NguoiDung nd ON nd.NguoiDungId = tt.NguoiDungId
       INNER JOIN dbo.TaiKhoan tk ON tk.TaiKhoanId = nd.TaiKhoanId
+      INNER JOIN dbo.GoiDangKy gd ON gd.GoiDangKyId = tt.GoiDangKyId
       ${where}
     `);
 
@@ -136,6 +140,7 @@ export class TransactionRepository extends BaseRepository {
         CAST(tk.TaiKhoanId AS NVARCHAR(50)) AS UserId,
         ISNULL(nd.HoVaTen, N'') AS UserName,
         ISNULL(tk.Email, N'') AS UserEmail,
+        ISNULL(gd.TenGoi, N'') AS PackageName,
         CAST(tt.SoTien AS FLOAT) AS Amount,
         CAST(
           CASE
@@ -152,6 +157,7 @@ export class TransactionRepository extends BaseRepository {
       FROM dbo.ThanhToan tt
       INNER JOIN dbo.NguoiDung nd ON nd.NguoiDungId = tt.NguoiDungId
       INNER JOIN dbo.TaiKhoan tk ON tk.TaiKhoanId = nd.TaiKhoanId
+      INNER JOIN dbo.GoiDangKy gd ON gd.GoiDangKyId = tt.GoiDangKyId
       ${where}
       ORDER BY ${sortColumn} ${input.sortOrder.toUpperCase()}
       OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
@@ -181,6 +187,7 @@ export class TransactionRepository extends BaseRepository {
         CAST(tk.TaiKhoanId AS NVARCHAR(50)) AS UserId,
         ISNULL(nd.HoVaTen, N'') AS UserName,
         ISNULL(tk.Email, N'') AS UserEmail,
+        ISNULL(gd.TenGoi, N'') AS PackageName,
         CAST(tt.SoTien AS FLOAT) AS Amount,
         CAST(
           CASE
