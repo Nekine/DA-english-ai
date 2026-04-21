@@ -79,7 +79,7 @@ const PLAN_CONFIG: Record<PaymentPlanTier, Record<PaymentPlanCycle, PlanConfig>>
       cycle: "1month",
       packageName: "Pre 1 tháng",
       packageDescription: "Gói Pre 1 tháng",
-      amount: 11000,
+      amount: 218900,
       durationMonths: 1,
       accountType: "premium",
     },

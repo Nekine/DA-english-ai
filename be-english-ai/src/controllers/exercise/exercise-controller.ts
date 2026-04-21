@@ -117,14 +117,18 @@ export async function submitExerciseResultHandler(req: Request, res: Response): 
   const body = req.body as {
     exerciseId?: number;
     answers?: string[];
+    startedAt?: string;
     completedAt?: string;
+    timeSpentSeconds?: number;
   };
 
   const result = await submitAiExerciseResult({
     requestedByTaiKhoanId,
     exerciseId: Number(body.exerciseId ?? 0),
     answers: Array.isArray(body.answers) ? body.answers : [],
+    ...(body.startedAt ? { startedAt: String(body.startedAt) } : {}),
     ...(body.completedAt ? { completedAt: body.completedAt } : {}),
+    ...(Number.isFinite(body.timeSpentSeconds) ? { timeSpentSeconds: Number(body.timeSpentSeconds) } : {}),
   });
 
   if (!result.success) {
@@ -145,14 +149,18 @@ export async function submitSentenceWritingResultHandler(req: Request, res: Resp
   const body = req.body as {
     exerciseId?: number;
     answers?: Array<{ sentenceId?: number; userTranslation: string }>;
+    startedAt?: string;
     completedAt?: string;
+    timeSpentSeconds?: number;
   };
 
   const result = await submitSentenceWritingResult({
     requestedByTaiKhoanId,
     exerciseId: Number(body.exerciseId ?? 0),
     answers: Array.isArray(body.answers) ? body.answers : [],
+    ...(body.startedAt ? { startedAt: String(body.startedAt) } : {}),
     ...(body.completedAt ? { completedAt: body.completedAt } : {}),
+    ...(Number.isFinite(body.timeSpentSeconds) ? { timeSpentSeconds: Number(body.timeSpentSeconds) } : {}),
   });
 
   if (!result.success) {

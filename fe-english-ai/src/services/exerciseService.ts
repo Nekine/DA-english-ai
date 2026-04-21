@@ -66,7 +66,9 @@ export interface SaveExerciseRequest {
 export interface SubmitExerciseResultRequest {
   exerciseId: number;
   answers: string[];
+  startedAt?: string;
   completedAt?: string;
+  timeSpentSeconds?: number;
 }
 
 export interface SubmitExerciseResultResponse {

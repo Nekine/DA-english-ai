@@ -11,19 +11,61 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useReadingExercises } from "@/hooks/useReadingExercises";
 import type { ReadingExercise } from "@/services/databaseStatsService";
-import { ArrowLeft, Bot, CheckCircle2, User, XCircle } from "lucide-react";
-import { useState } from "react";
+import { ArrowLeft, Bot, CheckCircle2, Clock, User, XCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 interface ReadingExerciseCardProps {
   exercise: ReadingExercise;
   onBack: () => void;
 }
 
+const MAX_ATTEMPT_SECONDS = 10 * 60;
+
+const resolveTimeLimitSeconds = (timeLimit?: number): number => {
+  const parsed = Number(timeLimit);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return MAX_ATTEMPT_SECONDS;
+  }
+
+  return Math.min(MAX_ATTEMPT_SECONDS, Math.round(parsed));
+};
+
 const ReadingExerciseCard = ({ exercise, onBack }: ReadingExerciseCardProps) => {
   const { submitResult } = useReadingExercises();
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [score, setScore] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(resolveTimeLimitSeconds(exercise.timeLimit));
+  const attemptStartedAtRef = useRef<string>(new Date().toISOString());
+  const hasAutoSubmittedRef = useRef(false);
+
+  useEffect(() => {
+    attemptStartedAtRef.current = new Date().toISOString();
+    hasAutoSubmittedRef.current = false;
+    setTimeLeft(resolveTimeLimitSeconds(exercise.timeLimit));
+  }, [exercise.exerciseId]);
+
+  useEffect(() => {
+    if (isSubmitted || hasAutoSubmittedRef.current) {
+      return;
+    }
+
+    if (timeLeft <= 0) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setTimeLeft((prev) => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [isSubmitted, timeLeft]);
+
+  const formatCountdown = (seconds: number) => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
+  };
 
   const normalizeQuestionText = (text: string | undefined): string => {
     const raw = String(text ?? "").trim();
@@ -64,14 +106,33 @@ const ReadingExerciseCard = ({ exercise, onBack }: ReadingExerciseCardProps) => 
     setIsSubmitted(true);
 
     // Use exerciseId instead of id when submitting
-    submitResult(exercise.exerciseId, answerArray);
+    submitResult(exercise.exerciseId, answerArray, {
+      startedAt: attemptStartedAtRef.current,
+      timeSpentSeconds: Math.max(
+        1,
+        Math.round((Date.now() - new Date(attemptStartedAtRef.current).getTime()) / 1000),
+      ),
+    });
   };
 
   const handleReset = () => {
     setAnswers({});
     setIsSubmitted(false);
     setScore(0);
+    setTimeLeft(resolveTimeLimitSeconds(exercise.timeLimit));
+    attemptStartedAtRef.current = new Date().toISOString();
+    hasAutoSubmittedRef.current = false;
   };
+
+  useEffect(() => {
+    if (isSubmitted || hasAutoSubmittedRef.current || timeLeft > 0) {
+      return;
+    }
+
+    hasAutoSubmittedRef.current = true;
+    handleSubmit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeLeft, isSubmitted]);
 
   const questions = exercise.questions ?? [];
   const allQuestionsAnswered = questions.length > 0 && questions.every(
@@ -118,16 +179,30 @@ const ReadingExerciseCard = ({ exercise, onBack }: ReadingExerciseCardProps) => 
           </div>
         </div>
 
-        {isSubmitted && (
-          <div className="text-right">
-            <div className="text-3xl font-bold text-primary">
-              {score}/{questions.length}
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {questions.length > 0 ? Math.round((score / questions.length) * 100) : 0}% Correct
-            </p>
+        <div className="flex items-center gap-3">
+          <div
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
+              timeLeft <= 60
+                ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300"
+                : "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+            }`}
+          >
+            <Clock className="h-4 w-4" />
+            <span className="text-xs">Thời gian còn lại</span>
+            <span className="font-semibold tabular-nums">{formatCountdown(timeLeft)}</span>
           </div>
-        )}
+
+          {isSubmitted && (
+            <div className="text-right">
+              <div className="text-3xl font-bold text-primary">
+                {score}/{questions.length}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {questions.length > 0 ? Math.round((score / questions.length) * 100) : 0}% Correct
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
       <Card className="p-6 mb-6 bg-gradient-subtle">

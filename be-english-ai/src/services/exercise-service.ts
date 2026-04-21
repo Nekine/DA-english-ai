@@ -110,6 +110,31 @@ function parsePayload(raw: string): StoredExercisePayload | null {
   }
 }
 
+function parseOptionalDateTime(raw?: string): Date | undefined {
+  if (!raw) {
+    return undefined;
+  }
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return undefined;
+  }
+
+  return parsed;
+}
+
+function toOptionalTimeSpentMinutes(timeSpentSeconds?: number): number | undefined {
+  if (!Number.isFinite(timeSpentSeconds)) {
+    return undefined;
+  }
+
+  if (Number(timeSpentSeconds) <= 0) {
+    return undefined;
+  }
+
+  return Math.max(1, Math.round(Number(timeSpentSeconds) / 60));
+}
+
 function extractAnswerIndexFromExplanation(explanation: string, optionsLength: number): number | null {
   const normalized = explanation
     .normalize("NFD")
@@ -510,7 +535,9 @@ export async function submitAiExerciseResult(input: {
   requestedByTaiKhoanId: number;
   exerciseId: number;
   answers: string[];
+  startedAt?: string;
   completedAt?: string;
+  timeSpentSeconds?: number;
 }) {
   if (!Number.isInteger(input.exerciseId) || input.exerciseId <= 0) {
     return { success: false, message: "Invalid exercise id" };
@@ -586,6 +613,8 @@ export async function submitAiExerciseResult(input: {
   const score = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 10000) / 100 : 0;
   const completedAtRaw = input.completedAt ? new Date(input.completedAt) : new Date();
   const completedAt = Number.isNaN(completedAtRaw.getTime()) ? new Date() : completedAtRaw;
+  const startedAt = parseOptionalDateTime(input.startedAt);
+  const timeSpentMinutes = toOptionalTimeSpentMinutes(input.timeSpentSeconds);
 
   const resultJson = {
     totalQuestions,
@@ -603,7 +632,9 @@ export async function submitAiExerciseResult(input: {
     score,
     totalQuestions,
     correctAnswers: correctCount,
+    ...(startedAt ? { startedAt } : {}),
     completedAt,
+    ...(typeof timeSpentMinutes === "number" ? { timeSpentMinutes } : {}),
     details,
   });
 
@@ -632,7 +663,9 @@ export async function submitSentenceWritingResult(input: {
   requestedByTaiKhoanId: number;
   exerciseId: number;
   answers: SentenceWritingUserAnswer[];
+  startedAt?: string;
   completedAt?: string;
+  timeSpentSeconds?: number;
 }) {
   if (!Number.isInteger(input.exerciseId) || input.exerciseId <= 0) {
     return { success: false, message: "Invalid exercise id" };
@@ -713,6 +746,8 @@ export async function submitSentenceWritingResult(input: {
   const score = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 10000) / 100 : 0;
   const completedAtRaw = input.completedAt ? new Date(input.completedAt) : new Date();
   const completedAt = Number.isNaN(completedAtRaw.getTime()) ? new Date() : completedAtRaw;
+  const startedAt = parseOptionalDateTime(input.startedAt);
+  const timeSpentMinutes = toOptionalTimeSpentMinutes(input.timeSpentSeconds);
 
   const resultJson = {
     totalQuestions,
@@ -732,7 +767,9 @@ export async function submitSentenceWritingResult(input: {
     score,
     totalQuestions,
     correctAnswers: correctCount,
+    ...(startedAt ? { startedAt } : {}),
     completedAt,
+    ...(typeof timeSpentMinutes === "number" ? { timeSpentMinutes } : {}),
     details,
   });
 

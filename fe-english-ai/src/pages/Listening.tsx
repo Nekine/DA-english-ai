@@ -11,10 +11,11 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { listeningService, ListeningAnswerPayload, ListeningExerciseParams, ListeningExerciseResult, ListeningGenre, ListeningGradeResult, AiModel, ListeningExerciseSummary } from '@/services/listeningService';
 import { useToast } from '@/hooks/use-toast';
-import { AudioLines, BookOpen, Ear, History, Loader2, Music, Play, RefreshCcw, Sparkles, Square, Trophy, Volume2, ArrowLeft, Headphones } from 'lucide-react';
+import { AudioLines, BookOpen, Clock, Ear, History, Loader2, Music, Play, RefreshCcw, Sparkles, Square, Trophy, Volume2, ArrowLeft, Headphones } from 'lucide-react';
 
 const DEFAULT_QUESTION_COUNT = 5;
 const HISTORY_PAGE_SIZE = 6;
+const MAX_ATTEMPT_SECONDS = 10 * 60;
 
 const AI_MODEL_OPTIONS = [
   {
@@ -51,6 +52,9 @@ const Listening = () => {
   const [showTranscript, setShowTranscript] = useState<boolean>(false);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [activeAudioSegment, setActiveAudioSegment] = useState<number>(0);
+  const [timeLeft, setTimeLeft] = useState<number>(MAX_ATTEMPT_SECONDS);
+  const attemptStartedAtRef = useRef<string>(new Date().toISOString());
+  const hasAutoSubmittedRef = useRef<boolean>(false);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const userStoppedSpeechRef = useRef<boolean>(false);
@@ -91,6 +95,17 @@ const Listening = () => {
   }, [exercise]);
 
   const formatTimestamp = (value: string) => dateTimeFormatter.format(new Date(value));
+  const formatCountdown = (seconds: number) => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+  };
+
+  const resetAttemptTimer = () => {
+    attemptStartedAtRef.current = new Date().toISOString();
+    hasAutoSubmittedRef.current = false;
+    setTimeLeft(MAX_ATTEMPT_SECONDS);
+  };
 
   useEffect(() => {
     if (historyPage > totalHistoryPages) {
@@ -107,6 +122,18 @@ const Listening = () => {
       setActiveAudioSegment(0);
     }
   }, [activeAudioSegment, playbackSegments.length]);
+
+  useEffect(() => {
+    if (!exercise || gradeResult || isLoading || hasAutoSubmittedRef.current) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setTimeLeft((prev) => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [exercise?.ExerciseId, gradeResult, isLoading]);
 
   const loadRecentExercises = async () => {
     try {
@@ -156,6 +183,7 @@ const Listening = () => {
       setAnswers({});
       setGradeResult(null);
       setShowTranscript(false);
+      resetAttemptTimer();
       stopTranscriptReading();
       setIsHistoryOpen(false);
       toast({
@@ -269,6 +297,7 @@ const Listening = () => {
       setAnswers({});
       setGradeResult(null);
       setShowTranscript(false);
+      resetAttemptTimer();
       stopTranscriptReading();
       toast({
         title: 'Đã tạo bài nghe thành công',
@@ -305,7 +334,7 @@ const Listening = () => {
     setAnswers(prev => ({ ...prev, [questionIndex]: optionIndex }));
   };
 
-  const handleGrade = async () => {
+  const handleGrade = async (isAutoSubmit = false) => {
     if (!exercise) {
       return;
     }
@@ -317,18 +346,44 @@ const Listening = () => {
 
     try {
       setIsLoading(true);
-      const result = await listeningService.gradeExercise(exercise.ExerciseId, payload);
+      const result = await listeningService.gradeExercise(exercise.ExerciseId, payload, {
+        startedAt: attemptStartedAtRef.current,
+        timeSpentSeconds: Math.max(
+          1,
+          Math.round((Date.now() - new Date(attemptStartedAtRef.current).getTime()) / 1000),
+        ),
+      });
       setGradeResult(result);
     } catch (error) {
       console.error('Failed to grade listening answers', error);
       toast({
-        title: 'Không thể chấm điểm',
+        title: isAutoSubmit ? 'Tự nộp bài chưa thành công' : 'Không thể chấm điểm',
         description: 'Vui lòng thử lại sau.',
         variant: 'destructive'
       });
     } finally {
       setIsLoading(false);
     }
+  };
+
+  useEffect(() => {
+    if (!exercise || gradeResult || isLoading || hasAutoSubmittedRef.current || timeLeft > 0) {
+      return;
+    }
+
+    hasAutoSubmittedRef.current = true;
+    toast({
+      title: 'Đã hết 10 phút',
+      description: 'Hệ thống đang tự nộp bài nghe của bạn.'
+    });
+    void handleGrade(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exercise?.ExerciseId, gradeResult, isLoading, timeLeft]);
+
+  const handleRetryQuestions = () => {
+    setAnswers({});
+    setGradeResult(null);
+    resetAttemptTimer();
   };
 
   const handleReadTranscript = () => {
@@ -673,6 +728,17 @@ const Listening = () => {
                     <Badge variant="outline" className="border-slate-300 text-slate-600 dark:border-slate-500 dark:text-slate-200">
                       {englishLevels[String(exercise.EnglishLevel)] ?? `Level ${exercise.EnglishLevel}`}
                     </Badge>
+                    <div
+                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 ${
+                        timeLeft <= 60
+                          ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300'
+                          : 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200'
+                      }`}
+                    >
+                      <Clock className="h-4 w-4" />
+                      <span className="text-xs">Thời gian còn lại</span>
+                      <span className="font-semibold tabular-nums">{formatCountdown(timeLeft)}</span>
+                    </div>
                   </div>
                 </div>
                 {playbackSegments.length > 0 && (
@@ -809,7 +875,7 @@ const Listening = () => {
                               key={optionIndex}
                               className={`w-full rounded-lg border px-4 py-3 text-left transition ${optionTone}`}
                               onClick={() => handleSelectAnswer(index, optionIndex)}
-                              disabled={!!gradeResult}
+                              disabled={!!gradeResult || timeLeft === 0 || isLoading}
                             >
                               <span className="font-medium text-gray-900 dark:text-gray-100">{String.fromCharCode(65 + optionIndex)}.</span>
                               <span className="ml-3 text-gray-700 dark:text-gray-300">{option}</span>
@@ -831,7 +897,7 @@ const Listening = () => {
 
               <div className="flex flex-col-reverse gap-3 md:flex-row md:items-center md:justify-between">
                 {gradeResult ? (
-                  <Button variant="outline" onClick={() => setGradeResult(null)}>
+                  <Button variant="outline" onClick={handleRetryQuestions}>
                     Làm lại câu hỏi
                   </Button>
                 ) : (
@@ -842,8 +908,8 @@ const Listening = () => {
 
                 <Button
                   className="min-w-[220px]"
-                  onClick={handleGrade}
-                  disabled={isLoading || !!gradeResult}
+                  onClick={() => void handleGrade()}
+                  disabled={isLoading || !!gradeResult || timeLeft === 0}
                 >
                   {isLoading ? (
                     <>

@@ -65,8 +65,21 @@ export const useReadingExercises = () => {
 
   // 3. SUBMIT KẾT QUẢ VÀO .NET API
   const submitMutation = useMutation({
-    mutationFn: ({ exerciseId, answers }: { exerciseId: number; answers: number[] }) =>
-      databaseStatsService.submitReadingResult(1, exerciseId, answers), // userId=1 tạm
+    mutationFn: ({
+      exerciseId,
+      answers,
+      startedAt,
+      timeSpentSeconds,
+    }: {
+      exerciseId: number;
+      answers: number[];
+      startedAt?: string;
+      timeSpentSeconds?: number;
+    }) =>
+      databaseStatsService.submitReadingResult(1, exerciseId, answers, {
+        ...(startedAt ? { startedAt } : {}),
+        ...(Number.isFinite(timeSpentSeconds) ? { timeSpentSeconds } : {}),
+      }), // userId=1 tạm
     onSuccess: (_result: UserResult) => {
     },
     onError: (error) => {
@@ -81,9 +94,17 @@ export const useReadingExercises = () => {
   // 4. CALLBACK SUBMIT
   const submitResult = useCallback((
     exerciseId: number, 
-    answers: number[]
+    answers: number[],
+    options?: { startedAt?: string; timeSpentSeconds?: number },
   ) => {
-    submitMutation.mutate({ exerciseId, answers });
+    submitMutation.mutate({
+      exerciseId,
+      answers,
+      ...(options?.startedAt ? { startedAt: options.startedAt } : {}),
+      ...(Number.isFinite(options?.timeSpentSeconds)
+        ? { timeSpentSeconds: Number(options?.timeSpentSeconds) }
+        : {}),
+    });
   }, [submitMutation]);
 
   // 5. REFRESH DATA - Force refetch when admin uploads new exercise

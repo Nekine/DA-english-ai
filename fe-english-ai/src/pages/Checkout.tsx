@@ -128,13 +128,13 @@ const Checkout = () => {
   const planMatrix: Record<PlanTier, Record<BillingCycle, CheckoutPlan>> = {
     pre: {
       "1month": {
-        price: 10000,
-        vat: 1000,
-        total: 11000,
+        price: 199000,
+        vat: 19900,
+        total: 218900,
         label: "1 tháng",
-        displayPrice: "10.000đ",
-        monthlyEquivalent: "10.000đ/tháng",
-        note: "Giá test tạm thời",
+        displayPrice: "199.000đ",
+        monthlyEquivalent: "199.000đ/tháng",
+        note: "Gói Pre tiêu chuẩn",
       },
       "6months": {
         price: 999000,

@@ -88,14 +88,28 @@ export const listeningService = {
     return apiService.post<ListeningExerciseResult, ListeningExerciseParams>('/api/Listening/Generate', params);
   },
 
-  async gradeExercise(exerciseId: string, answers: ListeningAnswerPayload[]): Promise<ListeningGradeResult> {
+  async gradeExercise(
+    exerciseId: string,
+    answers: ListeningAnswerPayload[],
+    options?: { startedAt?: string; timeSpentSeconds?: number },
+  ): Promise<ListeningGradeResult> {
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), 45000);
 
     try {
-      return await apiService.post<ListeningGradeResult, { ExerciseId: string; Answers: ListeningAnswerPayload[] }>(
+      return await apiService.post<
+        ListeningGradeResult,
+        { ExerciseId: string; Answers: ListeningAnswerPayload[]; startedAt?: string; timeSpentSeconds?: number }
+      >(
         '/api/Listening/Grade',
-        { ExerciseId: exerciseId, Answers: answers },
+        {
+          ExerciseId: exerciseId,
+          Answers: answers,
+          ...(options?.startedAt ? { startedAt: options.startedAt } : {}),
+          ...(Number.isFinite(options?.timeSpentSeconds)
+            ? { timeSpentSeconds: Number(options?.timeSpentSeconds) }
+            : {}),
+        },
         { signal: controller.signal }
       );
     } catch (error: unknown) {

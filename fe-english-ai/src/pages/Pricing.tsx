@@ -40,7 +40,7 @@ const Pricing = () => {
     description: "Dùng thử các tính năng cơ bản",
     features: [
       "5 bài tập/ngày",
-      "4 đề thi mỗi tháng",
+      "1 đề thi mỗi tháng",
       "Nhận xét cơ bản",
       "Đánh giá điểm yếu",
       "Lộ trình học cơ bản",
@@ -66,7 +66,7 @@ const Pricing = () => {
     "1month": [
       {
         name: "Pre 1 tháng",
-        price: "10.000đ",
+        price: "199.000đ",
         period: "/tháng",
         description: "Gói nâng cấp tiêu chuẩn",
         features: ["15 bài tập/ngày", "10 đề thi mỗi tháng", ...commonPremiumFeatures],

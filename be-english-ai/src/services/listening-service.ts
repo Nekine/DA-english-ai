@@ -58,6 +58,31 @@ const MAX_TRANSCRIPT_WORDS = 320;
 const MAX_AI_PARSE_ATTEMPTS = 3;
 const GOOGLE_TTS_MAX_CHARS = 180;
 
+function parseOptionalDateTime(raw?: string): Date | undefined {
+  if (!raw) {
+    return undefined;
+  }
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return undefined;
+  }
+
+  return parsed;
+}
+
+function toOptionalTimeSpentMinutes(timeSpentSeconds?: number): number | undefined {
+  if (!Number.isFinite(timeSpentSeconds)) {
+    return undefined;
+  }
+
+  if (Number(timeSpentSeconds) <= 0) {
+    return undefined;
+  }
+
+  return Math.max(1, Math.round(Number(timeSpentSeconds) / 60));
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -884,6 +909,9 @@ export async function gradeListeningExercise(input: {
   requestedByTaiKhoanId: number;
   ExerciseId: string;
   Answers: Array<{ QuestionIndex: number; SelectedOptionIndex: number }>;
+  startedAt?: string;
+  completedAt?: string;
+  timeSpentSeconds?: number;
 }) {
   let exercise = exercises.get(input.ExerciseId) ?? null;
 
@@ -967,7 +995,10 @@ export async function gradeListeningExercise(input: {
       note: item.ExplanationInVietnamese,
     }));
 
-    const completedAt = new Date();
+    const completedAtRaw = input.completedAt ? new Date(input.completedAt) : new Date();
+    const completedAt = Number.isNaN(completedAtRaw.getTime()) ? new Date() : completedAtRaw;
+    const startedAt = parseOptionalDateTime(input.startedAt);
+    const timeSpentMinutes = toOptionalTimeSpentMinutes(input.timeSpentSeconds);
     const incorrectAnswers = Math.max(0, feedback.length - correctAnswers);
 
     try {
@@ -991,7 +1022,9 @@ export async function gradeListeningExercise(input: {
           score,
           totalQuestions: feedback.length,
           correctAnswers,
+          ...(startedAt ? { startedAt } : {}),
           completedAt,
+          ...(typeof timeSpentMinutes === "number" ? { timeSpentMinutes } : {}),
           details,
         });
 

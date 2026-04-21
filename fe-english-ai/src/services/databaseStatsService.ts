@@ -333,22 +333,34 @@ class DatabaseStatsService {
   }
 
   // Submit reading exercise result to .NET API
-  async submitReadingResult(userId: number, exerciseId: number, answers: number[]): Promise<UserResult> {
+  async submitReadingResult(
+    userId: number,
+    exerciseId: number,
+    answers: number[],
+    options?: { startedAt?: string; timeSpentSeconds?: number },
+  ): Promise<UserResult> {
     try {
       interface SubmitResultRequest {
         userId: number;
         exerciseId: number;
         answers: number[];
-        timeSpent?: number; // Optional time tracking
+        startedAt?: string;
+        timeSpentSeconds?: number;
         completedAt: string;
       }
 
-      const response = await apiService.post<UserResult>('/api/ReadingExercise/submit-result', {
+      const payload: SubmitResultRequest = {
         userId,
         exerciseId,
         answers,
-        completedAt: new Date().toISOString()
-      });
+        ...(options?.startedAt ? { startedAt: options.startedAt } : {}),
+        ...(Number.isFinite(options?.timeSpentSeconds)
+          ? { timeSpentSeconds: Number(options?.timeSpentSeconds) }
+          : {}),
+        completedAt: new Date().toISOString(),
+      };
+
+      const response = await apiService.post<UserResult>('/api/ReadingExercise/submit-result', payload);
       return response;
     } catch (error) {
       console.error('Error submitting reading result:', error);

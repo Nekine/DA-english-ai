@@ -33,6 +33,38 @@ export interface ReadingQuestionInput {
   explanation?: string;
 }
 
+function resolveCompletionTiming(input: {
+  completedAt: Date;
+  startedAt?: Date;
+  timeSpentMinutes?: number;
+}): { startedAt: Date; timeSpentMinutes: number } {
+  const completedAtMs = input.completedAt.getTime();
+
+  const providedMinutes = Number.isFinite(input.timeSpentMinutes)
+    ? Math.max(1, Math.round(Number(input.timeSpentMinutes)))
+    : null;
+
+  const startedAtValid =
+    input.startedAt instanceof Date
+    && !Number.isNaN(input.startedAt.getTime())
+    && input.startedAt.getTime() <= completedAtMs;
+
+  const startedAtMs = startedAtValid ? input.startedAt!.getTime() : null;
+  const minutesFromStartedAt = startedAtMs !== null
+    ? Math.max(1, Math.round((completedAtMs - startedAtMs) / 60000))
+    : null;
+
+  const effectiveMinutes = providedMinutes ?? minutesFromStartedAt ?? 1;
+  const effectiveStartedAt = startedAtMs !== null
+    ? new Date(startedAtMs)
+    : new Date(completedAtMs - effectiveMinutes * 60 * 1000);
+
+  return {
+    startedAt: effectiveStartedAt,
+    timeSpentMinutes: effectiveMinutes,
+  };
+}
+
 export class ReadingExerciseRepository extends BaseRepository {
   async resolveNguoiDungIdByTaiKhoanId(taiKhoanId: number): Promise<number | null> {
     return exerciseRepository.resolveNguoiDungIdByTaiKhoanId(taiKhoanId);
@@ -342,7 +374,9 @@ export class ReadingExerciseRepository extends BaseRepository {
     score: number;
     totalQuestions: number;
     correctAnswers: number;
+    startedAt?: Date;
     completedAt: Date;
+    timeSpentMinutes?: number;
   }): Promise<{ completionId: number; attemptNumber: number }> {
     const pool = await getDbPool();
     const transaction = pool.transaction();
@@ -364,6 +398,11 @@ export class ReadingExerciseRepository extends BaseRepository {
       `);
 
       const nextAttempt = attemptResult.recordset[0]?.nextAttempt ?? 1;
+      const timing = resolveCompletionTiming({
+        completedAt: input.completedAt,
+        ...(input.startedAt ? { startedAt: input.startedAt } : {}),
+        ...(typeof input.timeSpentMinutes === "number" ? { timeSpentMinutes: input.timeSpentMinutes } : {}),
+      });
 
       const answeredDetails = input.questionDetails.map((question, index) => {
         const selectedIndex = input.answers?.[index] ?? -1;
@@ -408,8 +447,9 @@ export class ReadingExerciseRepository extends BaseRepository {
       this.bindInput(headerRequest, "tongSoCau", sql.Int, input.totalQuestions);
       this.bindInput(headerRequest, "soCauDung", sql.Int, input.correctAnswers);
       this.bindInput(headerRequest, "soCauSai", sql.Int, Math.max(0, input.totalQuestions - input.correctAnswers));
-      this.bindInput(headerRequest, "thoiGianBatDau", sql.DateTime2(0), new Date(input.completedAt.getTime() - 60 * 1000));
+      this.bindInput(headerRequest, "thoiGianBatDau", sql.DateTime2(0), timing.startedAt);
       this.bindInput(headerRequest, "thoiGianHoanThanh", sql.DateTime2(0), input.completedAt);
+      this.bindInput(headerRequest, "thoiGianLamPhut", sql.Int, timing.timeSpentMinutes);
 
       const headerResult = await headerRequest.query<{ id: number }>(`
         INSERT INTO dbo.BaiLamBaiTapAI (
@@ -441,7 +481,7 @@ export class ReadingExerciseRepository extends BaseRepository {
           @soCauSai,
           @thoiGianBatDau,
           @thoiGianHoanThanh,
-          1,
+          @thoiGianLamPhut,
           N'graded',
           N'Auto graded'
         )

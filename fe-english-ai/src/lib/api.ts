@@ -116,7 +116,9 @@ export interface SubmitSentenceWritingResultRequest {
     sentenceId?: number;
     userTranslation: string;
   }>;
+  startedAt?: string;
   completedAt?: string;
+  timeSpentSeconds?: number;
 }
 
 export interface SubmitSentenceWritingResultResponse {

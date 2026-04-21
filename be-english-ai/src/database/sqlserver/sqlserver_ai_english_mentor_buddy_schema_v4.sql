@@ -173,7 +173,7 @@ CREATE TABLE dbo.BaiTapAI (
 GO
 
 select * from dbo.BaiTapAI
-delete from dbo.BaiTapAI
+
 
 CREATE INDEX IX_BaiTapAI_NguoiDungId ON dbo.BaiTapAI(NguoiDungId);
 CREATE INDEX IX_BaiTapAI_KieuBaiTap ON dbo.BaiTapAI(KieuBaiTap);

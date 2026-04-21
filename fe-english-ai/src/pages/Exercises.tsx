@@ -174,6 +174,16 @@ const questionTypeOptions: QuestionTypeOption[] = [
 ];
 
 const CREATED_EXERCISES_PAGE_SIZE = 6;
+const MAX_ATTEMPT_SECONDS = 10 * 60;
+
+const resolveTimeLimitSeconds = (timeLimit?: number): number => {
+  const parsed = Number(timeLimit);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return MAX_ATTEMPT_SECONDS;
+  }
+
+  return Math.min(MAX_ATTEMPT_SECONDS, Math.round(parsed));
+};
 
 // Question Types Selector Component
 const QuestionTypesSelector: React.FC<{
@@ -243,7 +253,7 @@ const Exercises: React.FC = () => {
   const [showExercise, setShowExercise] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState(1);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
-  const [timeLeft, setTimeLeft] = useState(600); // 10 minutes in seconds
+  const [timeLeft, setTimeLeft] = useState(MAX_ATTEMPT_SECONDS);
   const [topic, setTopic] = useState('');
   const [totalQuestions, setTotalQuestions] = useState(10);
   const [isLoading, setIsLoading] = useState(false);
@@ -257,6 +267,7 @@ const Exercises: React.FC = () => {
     correctAnswers: number;
     feedback: string;
   } | null>(null);
+  const [attemptStartedAt, setAttemptStartedAt] = useState<string | null>(null);
 
   const [selectedQuestionTypes, setSelectedQuestionTypes] = useState<AssignmentType[]>([AssignmentType.Grammar]);
   const [aiProvider, setAiProvider] = useState<'gemini' | 'openai' | 'xai'>('openai');
@@ -314,6 +325,7 @@ const Exercises: React.FC = () => {
     setSavedExerciseId(null);
     setIsLoading(false);
     setIsCreatingExercise(false);
+    setAttemptStartedAt(null);
   };
 
   const loadCreatedExercises = async () => {
@@ -363,7 +375,8 @@ const Exercises: React.FC = () => {
       setAnswers({});
       setSubmissionResult(null);
       setShowExercise(true);
-      setTimeLeft(Number(detail.timeLimit) > 0 ? detail.timeLimit : 600);
+      setTimeLeft(resolveTimeLimitSeconds(detail.timeLimit));
+      setAttemptStartedAt(new Date().toISOString());
       setIsHistoryOpen(false);
 
       toast({
@@ -438,9 +451,10 @@ const Exercises: React.FC = () => {
         setTotalQuestions(result.Questions.length);
         setCurrentQuestion(1);
         setShowExercise(true);
-        setTimeLeft(600); // Reset timer
+        setTimeLeft(resolveTimeLimitSeconds(result.TimeLimit));
         setSubmissionResult(null);
         setAnswers({}); // Reset answers
+        setAttemptStartedAt(new Date().toISOString());
         
         // Tự động lưu bài tập vào database
         try {
@@ -514,11 +528,18 @@ const Exercises: React.FC = () => {
 
       if (effectiveExerciseId && exerciseSet?.Questions?.length) {
         try {
+          const completedAt = new Date();
+          const timeSpentSeconds = attemptStartedAt
+            ? Math.max(1, Math.round((completedAt.getTime() - new Date(attemptStartedAt).getTime()) / 1000))
+            : undefined;
+
           const orderedAnswers = exerciseSet.Questions.map((_, index) => answers[index + 1] ?? "");
           await exerciseService.submitExerciseResult({
             exerciseId: effectiveExerciseId,
             answers: orderedAnswers,
-            completedAt: new Date().toISOString(),
+            ...(attemptStartedAt ? { startedAt: attemptStartedAt } : {}),
+            completedAt: completedAt.toISOString(),
+            ...(typeof timeSpentSeconds === 'number' ? { timeSpentSeconds } : {}),
           });
           persistedToDatabase = true;
         } catch (persistError) {
@@ -858,9 +879,16 @@ const Exercises: React.FC = () => {
                 <ArrowLeft className="mr-2" size={16} />
                 Quay lại
               </Button>
-              <div className="flex items-center text-muted-foreground">
-                <Clock size={16} className="mr-1" />
-                <span>{formatTime(timeLeft)}</span>
+              <div
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
+                  timeLeft <= 60
+                    ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300'
+                    : 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300'
+                }`}
+              >
+                <Clock size={16} />
+                <span className="text-xs">Thời gian còn lại</span>
+                <span className="font-semibold tabular-nums">{formatTime(timeLeft)}</span>
               </div>
             </div>
 

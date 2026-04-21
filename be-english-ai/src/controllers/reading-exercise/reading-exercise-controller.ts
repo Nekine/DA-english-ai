@@ -198,14 +198,18 @@ export async function submitReadingResultHandler(req: Request, res: Response): P
   const body = req.body as {
     exerciseId: number;
     answers: number[];
+    startedAt?: string;
     completedAt?: string;
+    timeSpentSeconds?: number;
   };
 
   const result = await submitReadingResult({
     requestedByTaiKhoanId,
     exerciseId: Number(body.exerciseId),
     answers: Array.isArray(body.answers) ? body.answers : [],
+    ...(body.startedAt ? { startedAt: String(body.startedAt) } : {}),
     ...(body.completedAt ? { completedAt: body.completedAt } : {}),
+    ...(Number.isFinite(body.timeSpentSeconds) ? { timeSpentSeconds: Number(body.timeSpentSeconds) } : {}),
   });
   if (!result.success) {
     res.status(HTTP_STATUS.BAD_REQUEST).json(result);

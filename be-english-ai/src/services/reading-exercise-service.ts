@@ -40,6 +40,31 @@ type InMemoryReadingExercise = {
 
 const inMemoryReadingExercises = new Map<number, InMemoryReadingExercise>();
 
+function parseOptionalDateTime(raw?: string): Date | undefined {
+  if (!raw) {
+    return undefined;
+  }
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return undefined;
+  }
+
+  return parsed;
+}
+
+function toOptionalTimeSpentMinutes(timeSpentSeconds?: number): number | undefined {
+  if (!Number.isFinite(timeSpentSeconds)) {
+    return undefined;
+  }
+
+  if (Number(timeSpentSeconds) <= 0) {
+    return undefined;
+  }
+
+  return Math.max(1, Math.round(Number(timeSpentSeconds) / 60));
+}
+
 type ReadingPartType = "Part 5" | "Part 6" | "Part 7";
 
 function randomOptionIndex(maxInclusive: number): number {
@@ -1233,7 +1258,9 @@ export async function submitReadingResult(input: {
   requestedByTaiKhoanId: number;
   exerciseId: number;
   answers: number[];
+  startedAt?: string;
   completedAt?: string;
+  timeSpentSeconds?: number;
 }) {
   if (!appConfig.db.enabled) {
     const exercise = inMemoryReadingExercises.get(input.exerciseId);
@@ -1287,6 +1314,8 @@ export async function submitReadingResult(input: {
     const completedAtRaw = input.completedAt ? new Date(input.completedAt) : new Date();
     return Number.isNaN(completedAtRaw.getTime()) ? new Date() : completedAtRaw;
   })();
+  const startedAt = parseOptionalDateTime(input.startedAt);
+  const timeSpentMinutes = toOptionalTimeSpentMinutes(input.timeSpentSeconds);
 
   const completion = await readingRepository.addCompletion({
     nguoiDungId,
@@ -1301,7 +1330,9 @@ export async function submitReadingResult(input: {
     score,
     totalQuestions,
     correctAnswers,
+    ...(startedAt ? { startedAt } : {}),
     completedAt,
+    ...(typeof timeSpentMinutes === "number" ? { timeSpentMinutes } : {}),
   });
 
   await recordAttendanceFromCompletionByNguoiDungId({

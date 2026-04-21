@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Header from '@/components/Navbar';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { 
   ArrowLeft, 
+  Clock,
   Check, 
   X, 
   ChevronRight, 
@@ -49,6 +50,8 @@ interface SentenceReview {
   isCorrect: boolean;
 }
 
+const MAX_ATTEMPT_SECONDS = 10 * 60;
+
 
 const SentencePractice = () => {
   const location = useLocation();
@@ -62,6 +65,9 @@ const SentencePractice = () => {
   const [reviews, setReviews] = useState<SentenceReview[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
+  const attemptStartedAtRef = useRef<string>(new Date().toISOString());
+  const hasAutoSubmittedRef = useRef(false);
+  const [timeLeft, setTimeLeft] = useState(MAX_ATTEMPT_SECONDS);
   
   // Scroll to top when navigating to this page
   useEffect(() => {
@@ -75,6 +81,12 @@ const SentencePractice = () => {
   const totalSentences = sentences.length;
   const isLastSentence = currentIndex === totalSentences - 1;
   const answeredCount = userAnswers.length;
+
+  const formatCountdown = (seconds: number) => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
+  };
   
   // Scroll to top when changing sentence
   useEffect(() => {
@@ -90,6 +102,22 @@ const SentencePractice = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex]);
+
+  useEffect(() => {
+    if (isCompleted || isSubmitting || hasAutoSubmittedRef.current) {
+      return;
+    }
+
+    if (timeLeft <= 0) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setTimeLeft((prev) => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [isCompleted, isSubmitting, timeLeft]);
 
   // Early return after all hooks
   if (!generatedData || sentences.length === 0) {
@@ -158,30 +186,51 @@ const SentencePractice = () => {
       .trim();
   };
 
-  const handleSubmitAll = async () => {
-    if (!userTranslation.trim()) {
+  const handleSubmitAll = async (forceSubmit = false) => {
+    const trimmedCurrentTranslation = userTranslation.trim();
+
+    if (!forceSubmit && !trimmedCurrentTranslation) {
       toast.error("Vui lòng nhập bản dịch cho câu cuối cùng!");
       return;
     }
 
-    // Validate minimum word count for last answer
-    const wordCount = userTranslation.trim().split(/\s+/).length;
-    if (wordCount < 3) {
-      toast.error(`Câu cuối cùng phải có ít nhất 3 từ (hiện tại: ${wordCount} từ)`);
+    if (!forceSubmit) {
+      const wordCount = trimmedCurrentTranslation.split(/\s+/).length;
+      if (wordCount < 3) {
+        toast.error(`Câu cuối cùng phải có ít nhất 3 từ (hiện tại: ${wordCount} từ)`);
+        return;
+      }
+    }
+
+    const mergedAnswers = userAnswers.filter((a) => a.sentenceId !== currentSentence.id);
+    if (trimmedCurrentTranslation.length > 0) {
+      mergedAnswers.push({
+        sentenceId: currentSentence.id,
+        vietnamese: currentSentence.vietnamese,
+        userTranslation: trimmedCurrentTranslation,
+      });
+    }
+
+    const finalAnswers = forceSubmit
+      ? sentences.map((sentence) => {
+          const existing = mergedAnswers.find((a) => a.sentenceId === sentence.id);
+          return (
+            existing ?? {
+              sentenceId: sentence.id,
+              vietnamese: sentence.vietnamese,
+              userTranslation: "",
+            }
+          );
+        })
+      : mergedAnswers;
+
+    if (!forceSubmit && finalAnswers.length !== totalSentences) {
+      toast.error("Vui lòng hoàn thành tất cả các câu trước khi nộp bài!");
       return;
     }
 
-    // Save last answer
-    const lastAnswer: UserAnswer = {
-      sentenceId: currentSentence.id,
-      vietnamese: currentSentence.vietnamese,
-      userTranslation: userTranslation.trim()
-    };
-    
-    const allAnswers = [...userAnswers.filter(a => a.sentenceId !== currentSentence.id), lastAnswer];
-    
-    if (allAnswers.length !== totalSentences) {
-      toast.error("Vui lòng hoàn thành tất cả các câu trước khi nộp bài!");
+    if (forceSubmit && finalAnswers.every((a) => !a.userTranslation.trim())) {
+      toast.error("Đã hết giờ nhưng bạn chưa nhập câu trả lời nào.");
       return;
     }
 
@@ -191,14 +240,14 @@ const SentencePractice = () => {
       return;
     }
     
-    setUserAnswers(allAnswers);
+    setUserAnswers(finalAnswers);
     setIsSubmitting(true);
     
     try {
       // Compare user answers with correct answers (no AI needed!)
       console.log("🔍 Comparing user answers with correct answers...");
       
-      const reviewResults: SentenceReview[] = allAnswers.map((answer, index) => {
+      const reviewResults: SentenceReview[] = finalAnswers.map((answer, index) => {
         const sentence = sentences.find(s => s.id === answer.sentenceId);
         
         if (!sentence) {
@@ -218,7 +267,8 @@ const SentencePractice = () => {
 
         const normalizedUserAnswer = normalizeText(answer.userTranslation);
         const normalizedCorrectAnswer = normalizeText(sentence.correctAnswer);
-        
+        const hasUserAnswer = normalizedUserAnswer.length > 0;
+
         const isMatch = normalizedUserAnswer === normalizedCorrectAnswer && normalizedCorrectAnswer !== '';
 
         // Create review result
@@ -229,11 +279,15 @@ const SentencePractice = () => {
           sentenceId: answer.sentenceId,
           vietnamese: answer.vietnamese,
           userAnswer: answer.userTranslation,
-          score: isMatch ? 10 : 5, // 10 for correct, 5 for wrong (still good effort)
+          score: isMatch ? 10 : hasUserAnswer ? 5 : 0,
           correctAnswer: correctAnswer,
           vocabulary: sentence.suggestion?.vocabulary.map(v => `${v.word}: ${v.meaning}`).join('; ') || "",
           grammarPoints: sentence.suggestion?.structure || "",
-          errorExplanation: isMatch ? "" : "Câu trả lời chưa chính xác. Hãy so sánh với đáp án đúng và học từ vựng, ngữ pháp bên dưới.",
+          errorExplanation: isMatch
+            ? ""
+            : hasUserAnswer
+            ? "Câu trả lời chưa chính xác. Hãy so sánh với đáp án đúng và học từ vựng, ngữ pháp bên dưới."
+            : "Bạn chưa trả lời câu này trước khi hết thời gian.",
           isCorrect: isMatch
         } as SentenceReview;
       });
@@ -259,11 +313,16 @@ const SentencePractice = () => {
 
       await sentenceWritingApi.submitSentenceWritingResult({
         exerciseId: numericExerciseId,
-        answers: allAnswers.map((answer) => ({
+        answers: finalAnswers.map((answer) => ({
           sentenceId: answer.sentenceId,
           userTranslation: answer.userTranslation,
         })),
+        startedAt: attemptStartedAtRef.current,
         completedAt: new Date().toISOString(),
+        timeSpentSeconds: Math.max(
+          1,
+          Math.round((Date.now() - new Date(attemptStartedAtRef.current).getTime()) / 1000),
+        ),
       });
       
       setReviews(reviewResults);
@@ -288,6 +347,21 @@ const SentencePractice = () => {
     }
   };
 
+  useEffect(() => {
+    if (isCompleted || isSubmitting || hasAutoSubmittedRef.current) {
+      return;
+    }
+
+    if (timeLeft > 0) {
+      return;
+    }
+
+    hasAutoSubmittedRef.current = true;
+    toast.error("Đã hết 10 phút, hệ thống đang tự nộp bài.");
+    void handleSubmitAll(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeLeft, isCompleted, isSubmitting]);
+
   const handleRewrite = () => {
     setUserTranslation("");
   };
@@ -298,6 +372,9 @@ const SentencePractice = () => {
     setIsCompleted(false);
     setCurrentIndex(0);
     setUserTranslation("");
+    setTimeLeft(MAX_ATTEMPT_SECONDS);
+    attemptStartedAtRef.current = new Date().toISOString();
+    hasAutoSubmittedRef.current = false;
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -488,6 +565,17 @@ const SentencePractice = () => {
             <Badge variant="outline" className="text-sm bg-primary/10">
               Đã trả lời: <span className="font-semibold ml-1">{answeredCount}/{totalSentences}</span>
             </Badge>
+            <div
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
+                timeLeft <= 60
+                  ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300"
+                  : "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+              }`}
+            >
+              <Clock className="w-4 h-4" />
+              <span className="text-xs">Thời gian còn lại</span>
+              <span className="font-semibold tabular-nums">{formatCountdown(timeLeft)}</span>
+            </div>
           </div>
         </div>
 
@@ -539,14 +627,14 @@ const SentencePractice = () => {
                   value={userTranslation}
                   onChange={(e) => setUserTranslation(e.target.value)}
                   className="min-h-[120px] text-base"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || timeLeft === 0}
                 />
 
                 <div className="flex gap-3">
                   <Button
                     variant="outline"
                     onClick={handleRewrite}
-                    disabled={isSubmitting || !userTranslation}
+                    disabled={isSubmitting || timeLeft === 0 || !userTranslation}
                     className="flex-1"
                   >
                     <RotateCcw className="w-4 h-4 mr-2" />
@@ -554,8 +642,8 @@ const SentencePractice = () => {
                   </Button>
                   {isLastSentence ? (
                     <Button
-                      onClick={handleSubmitAll}
-                      disabled={isSubmitting || !userTranslation.trim()}
+                      onClick={() => void handleSubmitAll()}
+                      disabled={isSubmitting || timeLeft === 0 || !userTranslation.trim()}
                       className="flex-1"
                     >
                       {isSubmitting ? (
@@ -573,7 +661,7 @@ const SentencePractice = () => {
                   ) : (
                     <Button
                       onClick={handleNextSentence}
-                      disabled={isSubmitting || !userTranslation.trim()}
+                      disabled={isSubmitting || timeLeft === 0 || !userTranslation.trim()}
                       className="flex-1"
                     >
                       Câu tiếp theo

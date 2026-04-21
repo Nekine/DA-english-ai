@@ -67,12 +67,20 @@ export async function gradeListeningHandler(req: Request, res: Response): Promis
   const body = req.body as {
     ExerciseId: string;
     Answers: Array<{ QuestionIndex: number; SelectedOptionIndex: number }>;
+    startedAt?: string;
+    completedAt?: string;
+    timeSpentSeconds?: number;
   };
 
   const result = await gradeListeningExercise({
     requestedByTaiKhoanId,
     ExerciseId: String(body.ExerciseId ?? ""),
     Answers: Array.isArray(body.Answers) ? body.Answers : [],
+    ...(body.startedAt ? { startedAt: String(body.startedAt) } : {}),
+    ...(body.completedAt ? { completedAt: String(body.completedAt) } : {}),
+    ...(Number.isFinite(body.timeSpentSeconds)
+      ? { timeSpentSeconds: Number(body.timeSpentSeconds) }
+      : {}),
   });
 
   if (!result) {
