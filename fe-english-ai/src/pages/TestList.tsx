@@ -65,10 +65,10 @@ const TestList = () => {
               <FileText className="w-8 h-8 text-primary-foreground" />
             </div>
             <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
-              Luyện Đề TOEIC
+              Luyện Đề
             </h1>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Đề thi TOEIC tạo bằng AI.
+              Đề thi tạo bằng AI.
             </p>
             <Button onClick={() => navigate("/test-config")} size="lg" className="mt-2">
               <PlusCircle className="w-4 h-4 mr-2" />
@@ -92,7 +92,7 @@ const TestList = () => {
               {(!tests || tests.length === 0) && (
                 <Card className="p-8 text-center bg-white dark:bg-gray-800">
                   <h3 className="text-xl font-semibold mb-2">Chưa có đề nào</h3>
-                  <p className="text-muted-foreground mb-4">Tạo đề đầu tiên để bắt đầu luyện TOEIC.</p>
+                  <p className="text-muted-foreground mb-4">Tạo đề đầu tiên để bắt đầu luyện.</p>
                   <Button onClick={() => navigate("/test-config")}>
                     <PlusCircle className="w-4 h-4 mr-2" />
                     Tạo đề ngay

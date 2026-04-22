@@ -414,13 +414,28 @@ function refineRightOptionIndex(input: {
   const boundedInitial = Math.max(0, Math.min(maxIndex, input.initialIndex));
 
   const explanationIndex = extractIndexFromExplanation(input.explanation, input.options.length);
-  if (typeof explanationIndex === "number") {
-    return explanationIndex;
-  }
-
   const transcriptIndex = tryResolveFromTranscript(input.options, input.transcript);
   if (typeof transcriptIndex === "number") {
     return transcriptIndex;
+  }
+
+  // Prefer structured answer index from payload over free-form explanation text.
+  if (Number.isInteger(input.initialIndex) && input.options.length > 0) {
+    // When initial index is unresolved fallback (often 0), allow explanation label
+    // to recover non-A answers if model didn't provide a usable index.
+    if (
+      boundedInitial === 0
+      && typeof explanationIndex === "number"
+      && explanationIndex !== 0
+    ) {
+      return explanationIndex;
+    }
+
+    return boundedInitial;
+  }
+
+  if (typeof explanationIndex === "number") {
+    return explanationIndex;
   }
 
   return boundedInitial;
@@ -548,6 +563,32 @@ function buildDetailedExplanation(question: ListeningQuestion, transcript: strin
   return `${base} Noi dung transcript ung ho y nay, trong khi cac dap an con lai khong phu hop ngu canh bai nghe.`;
 }
 
+function shouldRebuildExplanation(input: {
+  explanation: string;
+  rightOptionIndex: number;
+  options: string[];
+}): boolean {
+  const explanation = input.explanation.trim();
+  if (!explanation) {
+    return true;
+  }
+
+  if (isGenericExplanation(explanation)) {
+    return true;
+  }
+
+  if (explanation.length < 40) {
+    return true;
+  }
+
+  const explanationIndex = extractIndexFromExplanation(explanation, input.options.length);
+  if (typeof explanationIndex === "number" && explanationIndex !== input.rightOptionIndex) {
+    return true;
+  }
+
+  return false;
+}
+
 function ensureQuestionExplanations(questions: ListeningQuestion[], transcript: string): ListeningQuestion[] {
   return questions.map((question) => {
     const rightOptionIndex = refineRightOptionIndex({
@@ -562,13 +603,19 @@ function ensureQuestionExplanations(questions: ListeningQuestion[], transcript: 
       RightOptionIndex: rightOptionIndex,
     };
 
-    if (!isGenericExplanation(harmonizedQuestion.ExplanationInVietnamese)) {
+    const normalizedExplanation = normalizeExplanationAnswerLabel(
+      harmonizedQuestion.ExplanationInVietnamese,
+      harmonizedQuestion.RightOptionIndex,
+    );
+
+    if (!shouldRebuildExplanation({
+      explanation: normalizedExplanation,
+      rightOptionIndex: harmonizedQuestion.RightOptionIndex,
+      options: harmonizedQuestion.Options,
+    })) {
       return {
         ...harmonizedQuestion,
-        ExplanationInVietnamese: normalizeExplanationAnswerLabel(
-          harmonizedQuestion.ExplanationInVietnamese,
-          harmonizedQuestion.RightOptionIndex,
-        ),
+        ExplanationInVietnamese: normalizedExplanation,
       };
     }
 

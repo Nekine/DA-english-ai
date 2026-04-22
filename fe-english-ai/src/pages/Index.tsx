@@ -98,7 +98,7 @@ const practiceTracks = [
     tag: 'Reading Flow',
   },
   {
-    title: 'Luyện đề TOEIC',
+    title: 'Luyện đề',
     description: 'Kho đề mô phỏng cập nhật, chiến lược làm bài hiệu quả.',
     icon: FileText,
     path: '/test-list',

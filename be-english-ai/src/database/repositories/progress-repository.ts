@@ -317,7 +317,7 @@ export class ProgressRepository extends BaseRepository {
           bl.BaiLamDeThiAIId AS id,
           CAST(N'exam' AS NVARCHAR(20)) AS sourceType,
           CAST(N'test_exam' AS NVARCHAR(50)) AS exerciseType,
-          COALESCE(NULLIF(dt.TenDeThi, N''), CAST(N'TOEIC Test' AS NVARCHAR(200))) AS topic,
+          COALESCE(NULLIF(dt.TenDeThi, N''), CAST(N'Bài thi' AS NVARCHAR(200))) AS topic,
           bl.NgayTao AS completedAt,
           ISNULL(bl.DiemSo, 0) AS score,
           ISNULL(bl.ThoiGianLamPhut, 0) AS timeSpentMinutes

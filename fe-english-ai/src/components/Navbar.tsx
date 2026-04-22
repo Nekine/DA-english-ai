@@ -100,7 +100,7 @@ const Navbar = () => {
         { name: 'Viết', path: '/writing-mode' },
       ]
     },
-    { name: 'Luyện Đề TOEIC', path: '/test-list', icon: FileText, color: 'text-blue-600' },
+    { name: 'Luyện Đề', path: '/test-list', icon: FileText, color: 'text-blue-600' },
   ];
 
   const handleLogout = async () => {

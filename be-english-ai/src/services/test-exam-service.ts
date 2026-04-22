@@ -8,7 +8,7 @@ import { triggerLearningInsightsRefresh } from "./learning-insights-service";
 import { recordAttendanceFromCompletionByNguoiDungId } from "./progress-service";
 import { logger } from "../utils/logger";
 
-export type ToeicPartStatus = "pending" | "ready" | "failed";
+export type TestPartStatus = "pending" | "ready" | "failed";
 export type ExamStatus = "generating" | "ready" | "failed";
 
 export interface TestExamOption {
@@ -34,7 +34,7 @@ export interface TestExamPart {
   partTitle: string;
   description: string;
   isListening: boolean;
-  status: ToeicPartStatus;
+  status: TestPartStatus;
   audioText?: string;
   audioUrl?: string;
   audioSegments?: string[];
@@ -122,7 +122,7 @@ type PartAiPayload = {
   result?: unknown;
 };
 
-const TOEIC_PART_PROMPT_FILE = "test-exam-toeic-part.system.prompt.txt";
+const TEST_EXAM_PART_PROMPT_FILE = "test-exam-part.system.prompt.txt";
 const MAX_EXAMS = 80;
 const GOOGLE_TTS_MAX_CHARS = 180;
 
@@ -235,7 +235,7 @@ function normalizeAudioSegments(raw: unknown[]): string[] {
 
 function normalizeTopic(topic?: string): string {
   const trimmed = (topic ?? "").trim();
-  return trimmed || (suggestedTopics[0] ?? "Luyện thi TOEIC tổng hợp");
+  return trimmed || (suggestedTopics[0] ?? "Luyện thi tiếng Anh tổng hợp");
 }
 
 function normalizeSelectedPartDefinitions(input: CreateTestExamInput): PartDefinition[] {
@@ -360,8 +360,9 @@ function expectedOptionCount(definition: PartDefinition): number {
   return definition.partNumber === 2 ? 3 : 4;
 }
 
-function hasBlankToken(prompt: string): boolean {
-  return /_{3,}|\[\s*blank\s*\]|\(\s*blank\s*\)|\(\s*\d+\s*\)/i.test(prompt);
+function countPart6BlankTokens(prompt: string): number {
+  const matches = prompt.match(/_{3,}|\[\s*blank\s*\]|\(\s*blank\s*\)|\(\s*\d+\s*\)/gi);
+  return matches?.length ?? 0;
 }
 
 function looksLikeComprehensionQuestion(prompt: string): boolean {
@@ -378,11 +379,17 @@ function looksLikeComprehensionQuestion(prompt: string): boolean {
 }
 
 function isValidPart6Prompt(prompt: string): boolean {
-  if (!prompt.trim()) {
+  const normalized = prompt.trim();
+  if (!normalized) {
     return false;
   }
 
-  return hasBlankToken(prompt) && !looksLikeComprehensionQuestion(prompt);
+  const blankCount = countPart6BlankTokens(normalized);
+  if (blankCount !== 1) {
+    return false;
+  }
+
+  return !looksLikeComprehensionQuestion(normalized);
 }
 
 function sanitizeOptionContent(rawContent: string, expectedLabel: string): string {
@@ -670,7 +677,7 @@ function buildEffectiveQuestionAudioText(
   const looksLikePartIntro =
     normalizedQuestionAudioText.length > 0 &&
     (normalizedQuestionAudioText.toLowerCase() === normalizedPartAudioText ||
-      /you\s+are\s+(now\s+)?listening\s+to\s+part|this\s+is\s+toeic\s+part/i.test(normalizedQuestionAudioText));
+      /you\s+are\s+(now\s+)?listening\s+to\s+part|this\s+is\s+part/i.test(normalizedQuestionAudioText));
 
   let effective = looksLikePartIntro
     ? normalizedPrompt
@@ -791,7 +798,7 @@ function fallbackQuestion(definition: PartDefinition, topic: string, questionNum
 
   const isListening = definition.isListening;
   const audioText = isListening
-    ? `This is TOEIC ${definition.partTitle}. Topic is ${topic}. Question ${questionNumber}. Please choose the best answer.`
+    ? `This is ${definition.partTitle}. Topic is ${topic}. Question ${questionNumber}. Please choose the best answer.`
     : undefined;
   const audioSegments = audioText ? buildFallbackAudioUrls(audioText) : [];
   const prompt =
@@ -805,7 +812,7 @@ function fallbackQuestion(definition: PartDefinition, topic: string, questionNum
     prompt,
     options: buildDefaultOptions(`Question ${questionNumber}`, expectedOptionCount(definition)),
     correctAnswer: "A",
-    explanation: "Đáp án A phù hợp nhất với ngữ cảnh câu hỏi theo định dạng TOEIC.",
+    explanation: "Đáp án A phù hợp nhất với ngữ cảnh câu hỏi theo định dạng đề thi.",
     ...(audioText
       ? {
           audioText,
@@ -858,7 +865,7 @@ function buildPartUserPrompt(definition: PartDefinition, topic: string): string 
 
   if (definition.partNumber === 2) {
     partSpecificRules.push(
-      "Part 2 must strictly follow TOEIC Question-Response format.",
+      "Part 2 must strictly follow Question-Response format.",
       "Each question prompt is ONE short spoken English question/statement.",
       "Each question has exactly 3 response options (A, B, C).",
       "Options must be natural spoken responses, not sentence-completion choices.",
@@ -876,8 +883,8 @@ function buildPartUserPrompt(definition: PartDefinition, topic: string): string 
 
   if (definition.partNumber === 6) {
     partSpecificRules.push(
-      "Part 6 must be TOEIC Text Completion (cloze), not reading comprehension Q&A.",
-      "Each prompt must include at least one blank token such as ____.",
+      "Part 6 must be Text Completion (cloze), not reading comprehension Q&A.",
+      "Each prompt must include exactly ONE blank token such as ____.",
       "Do not ask comprehension questions like 'What is the purpose...?' or 'Why...?' in Part 6.",
       "Options should be short words/phrases that fit the blank grammatically and semantically.",
     );
@@ -1012,7 +1019,7 @@ function normalizeAiPart(rawPayload: unknown, definition: PartDefinition, topic:
 
 async function buildPart(definition: PartDefinition, topic: string): Promise<TestExamPart> {
   try {
-    const systemPrompt = loadPromptTemplate(TOEIC_PART_PROMPT_FILE);
+    const systemPrompt = loadPromptTemplate(TEST_EXAM_PART_PROMPT_FILE);
     const userPrompt = buildPartUserPrompt(definition, topic);
     const aiPayload = await generateJsonFromProvider<PartAiPayload>({
       provider: "openai",
@@ -1102,7 +1109,7 @@ function hydrateDetailFromRow(row: TestExamDbRow): TestExamDetail {
   const parsed = parseJson<Partial<TestExamDetail>>(row.noiDungJson);
   const topic = typeof parsed?.topic === "string" && parsed.topic.trim().length > 0
     ? parsed.topic
-    : "Luyện thi TOEIC tổng hợp";
+    : "Luyện thi tiếng Anh tổng hợp";
   const nowIso = row.ngayTao.toISOString();
   const parts = Array.isArray(parsed?.parts) ? parsed.parts : [];
   const safeParts = parts
@@ -1175,7 +1182,7 @@ function hydrateDetailFromRow(row: TestExamDbRow): TestExamDetail {
         partTitle: readFirstString(record, ["partTitle", "title"]) || definition?.partTitle || "Part",
         description: readFirstString(record, ["description"]) || definition?.description || "",
         isListening,
-        status: (readFirstString(record, ["status"]) as ToeicPartStatus) || "pending",
+        status: (readFirstString(record, ["status"]) as TestPartStatus) || "pending",
         ...(isListening
           ? {
               audioText: readFirstString(record, ["audioText", "script"]),
@@ -1369,7 +1376,7 @@ async function generateRemainingParts(testId: string): Promise<void> {
       });
     }
   } catch (error) {
-    logger.error("Background TOEIC generation failed", {
+    logger.error("Background test generation failed", {
       message: error instanceof Error ? error.message : String(error),
       testId,
     });
@@ -1407,7 +1414,7 @@ function buildInitialDetail(topic: string, isRealExamMode: boolean, selectedDefi
     partTitle: definition.partTitle,
     description: definition.description,
     isListening: definition.isListening,
-    status: "pending" as ToeicPartStatus,
+    status: "pending" as TestPartStatus,
     questions: [],
   }));
 
@@ -1416,7 +1423,7 @@ function buildInitialDetail(topic: string, isRealExamMode: boolean, selectedDefi
 
   return {
     testId: randomUUID(),
-    title: `Đề TOEIC ${selectedDefinitions.length} Part - ${topic}`,
+    title: `Đề thi ${selectedDefinitions.length} Part - ${topic}`,
     topic,
     estimatedMinutes: estimateMinutesByQuestionCount(questionCount),
     isRealExamMode,

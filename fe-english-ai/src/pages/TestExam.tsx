@@ -389,7 +389,7 @@ const TestExam = () => {
             >
               <X className="w-5 h-5" />
             </Button>
-            <div className="text-lg font-semibold">TOEIC {testDetail.generation.totalParts} Part</div>
+            <div className="text-lg font-semibold">Đề thi {testDetail.generation.totalParts} Part</div>
             <div className="bg-destructive text-white px-4 py-2 rounded-lg font-mono">
               {formatTime(timeLeft)}
             </div>
@@ -451,7 +451,7 @@ const TestExam = () => {
               <X className="w-5 h-5" />
             </Button>
             <div className="text-lg font-semibold">
-              {selectedPart ? `Part ${selectedPart.partNumber}` : "TOEIC"}
+              {selectedPart ? `Part ${selectedPart.partNumber}` : "Đề thi"}
             </div>
           </div>
 

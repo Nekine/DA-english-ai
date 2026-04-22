@@ -506,7 +506,7 @@ async function buildProgressByNguoiDungId(
       date: formatSqlDateTime(row.completedAt),
       sourceType: row.sourceType,
       skill,
-      topic: row.topic ?? (isExam ? "TOEIC Test" : "Bài tập"),
+      topic: row.topic ?? (isExam ? "Bài thi" : "Bài tập"),
       score: round(Number(row.score) || 0),
       duration: Number(row.timeSpentMinutes) || 0,
     };

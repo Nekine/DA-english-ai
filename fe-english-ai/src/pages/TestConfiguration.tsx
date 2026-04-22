@@ -13,7 +13,7 @@ import { useCreateTestExam } from "@/hooks/useCreateTestExam";
 import { useTestSuggestedTopics } from "@/hooks/useTestSuggestedTopics";
 import { useToast } from "@/hooks/use-toast";
 
-const TOEIC_PARTS = [
+const TEST_PARTS = [
   { partNumber: 1, label: "Part 1 - Short Descriptions (No Images)" },
   { partNumber: 2, label: "Part 2 - Question-Response" },
   { partNumber: 3, label: "Part 3 - Conversations" },
@@ -92,7 +92,7 @@ const TestConfiguration = () => {
             </div>
             <div>
               <h1 className="text-3xl font-bold mb-2 text-gray-900 dark:text-white">
-                Tạo đề TOEIC 7 Part
+                Tạo đề thi 7 Part
               </h1>
               <p className="text-muted-foreground">
                 Tạo xong Part 1 là vào làm ngay, Part 2-7 sẽ tự động sinh tiếp theo thứ tự.
@@ -169,7 +169,7 @@ const TestConfiguration = () => {
                 <div className="space-y-2 pt-2 border-t border-border/60">
                   <p className="text-sm font-medium">Chọn part muốn làm</p>
                   <div className="grid grid-cols-1 gap-2">
-                    {TOEIC_PARTS.map((part) => {
+                    {TEST_PARTS.map((part) => {
                       const checked = selectedParts.includes(part.partNumber);
                       return (
                         <label
